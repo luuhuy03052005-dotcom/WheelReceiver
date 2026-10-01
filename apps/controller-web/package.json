@@ -1,0 +1,9 @@
+{
+  "name": "@lan-racing-wheel/controller-web",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@lan-racing-wheel/protocol": "*",
+    "@lan-racing-wheel/control-math": "*"
+  }
+}

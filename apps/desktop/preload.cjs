@@ -1,0 +1,20 @@
+const {contextBridge,ipcRenderer}=require('electron');
+contextBridge.exposeInMainWorld('electronAPI',{
+ getServerInfo:()=>ipcRenderer.invoke('get-server-info'),
+ refreshPin:()=>ipcRenderer.invoke('refresh-pin'),
+ getRuntime:()=>ipcRenderer.invoke('get-runtime'),
+ setProfile:value=>ipcRenderer.invoke('set-profile',value),
+ applyProfile:()=>ipcRenderer.invoke('apply-profile'),
+ pause:()=>ipcRenderer.invoke('pause'),
+ selectNetwork:address=>ipcRenderer.invoke('select-network',address),
+ refreshNetworks:()=>ipcRenderer.invoke('refresh-networks'),
+ openController:()=>ipcRenderer.invoke('open-controller'),
+ revokeDevice:id=>ipcRenderer.invoke('revoke-device',id),
+ restartBridge:()=>ipcRenderer.invoke('restart-bridge'),
+ firewallHelp:()=>ipcRenderer.invoke('firewall-help'),
+ onState:callback=>ipcRenderer.on('runtime-state',(_e,data)=>callback(data)),
+ onInputState:callback=>ipcRenderer.on('input-state',(_e,data)=>callback(data)),
+ onServerReady:callback=>ipcRenderer.on('server-ready',(_e,data)=>callback(data)),
+ onBridgeLog:callback=>ipcRenderer.on('bridge-log',(_e,data)=>callback(data)),
+ onServerError:callback=>ipcRenderer.on('server-error',(_e,data)=>callback(data))
+});

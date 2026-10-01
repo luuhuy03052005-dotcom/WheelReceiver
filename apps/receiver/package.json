@@ -1,0 +1,10 @@
+{
+  "name": "@lan-racing-wheel/receiver",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "dependencies": {
+    "@lan-racing-wheel/gateway": "*",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

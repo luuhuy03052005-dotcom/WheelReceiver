@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Production / Package builds
+dist/
+dist-*/
+build-*/
+asar-extract-*/
+
+# Desktop bundle
+apps/desktop/bundle.cjs
+
+# C# build artifacts
+apps/bridge/publish/
+apps/bridge/Bridge/bin/
+apps/bridge/Bridge/obj/
+apps/bridge/Bridge.Tests/bin/
+apps/bridge/Bridge.Tests/obj/
+**/bin/
+**/obj/
+
+# Logs & temp files
+*.log
+*.tmp
+tests/recordings/
+.tempmediaStorage/
+
+# Deployment & IDE
+.vercel
+.vercelignore
+.vs/
+.vscode/
+.idea/

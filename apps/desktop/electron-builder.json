@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.lan-racing-wheel.receiver",
+  "productName": "LAN Racing Wheel Receiver",
+  "copyright": "Copyright © 2026 LAN Racing Wheel",
+  "directories": {
+    "output": "dist"
+  },
+  "extraMetadata": {
+    "main": "apps/desktop/bundle.cjs"
+  },
+  "files": [
+    "apps/desktop/bundle.cjs",
+    "apps/desktop/preload.cjs",
+    "apps/desktop/assets/**/*",
+    "apps/desktop/renderer/**/*",
+    "apps/controller-web/**/*",
+    "packages/**/*"
+  ],
+  "win": {
+    "icon": "apps/desktop/assets/icon.ico",
+    "requestedExecutionLevel": "asInvoker",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "LAN Racing Wheel Receiver",
+    "installerIcon": "apps/desktop/assets/icon.ico",
+    "uninstallerIcon": "apps/desktop/assets/icon.ico",
+    "installerHeaderIcon": "apps/desktop/assets/icon.ico"
+  },
+  "extraResources": [
+    {
+      "from": "apps/bridge/publish",
+      "to": "bridge"
+    },
+    {
+      "from": "apps/gateway/src/discover.ps1",
+      "to": "scripts/discover.ps1"
+    }
+  ]
+}
+

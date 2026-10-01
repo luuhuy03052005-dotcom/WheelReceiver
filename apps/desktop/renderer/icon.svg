@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#06090e"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#bg)"/>
+  <circle cx="128" cy="128" r="80" fill="none" stroke="#1e293b" stroke-width="22"/>
+  <circle cx="128" cy="128" r="80" fill="none" stroke="#334155" stroke-width="18"/>
+  <circle cx="128" cy="128" r="68" fill="none" stroke="rgba(56,189,248,0.3)" stroke-width="1.5"/>
+  <circle cx="128" cy="128" r="92" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+  <!-- 12 o'clock marker -->
+  <line x1="128" y1="50" x2="128" y2="38" stroke="#ef4444" stroke-width="10" stroke-linecap="round"/>
+  <!-- Spokes -->
+  <line x1="56" y1="128" x2="96" y2="128" stroke="#334155" stroke-width="8" stroke-linecap="round"/>
+  <line x1="160" y1="128" x2="200" y2="128" stroke="#334155" stroke-width="8" stroke-linecap="round"/>
+  <line x1="128" y1="160" x2="128" y2="200" stroke="#334155" stroke-width="8" stroke-linecap="round"/>
+  <!-- Hub -->
+  <circle cx="128" cy="128" r="28" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+  <circle cx="128" cy="128" r="12" fill="rgba(56,189,248,0.2)" stroke="#38bdf8" stroke-width="1.5"/>
+  <circle cx="128" cy="128" r="4" fill="#38bdf8"/>
+  <!-- Ticks -->
+  <g stroke="rgba(56,189,248,0.4)" stroke-width="2">
+    <line x1="128" y1="32" x2="128" y2="26"/>
+    <line x1="176" y1="42" x2="179" y2="37"/>
+    <line x1="214" y1="80" x2="220" y2="77"/>
+    <line x1="224" y1="128" x2="230" y2="128"/>
+    <line x1="214" y1="176" x2="220" y2="179"/>
+    <line x1="176" y1="214" x2="179" y2="219"/>
+    <line x1="128" y1="224" x2="128" y2="230"/>
+    <line x1="80" y1="214" x2="77" y2="219"/>
+    <line x1="42" y1="176" x2="37" y2="179"/>
+    <line x1="32" y1="128" x2="26" y2="128"/>
+    <line x1="42" y1="80" x2="37" y2="77"/>
+    <line x1="80" y1="42" x2="77" y2="37"/>
+  </g>
+</svg>

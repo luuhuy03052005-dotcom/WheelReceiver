@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="rimGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="70%" stop-color="#1e2430" />
+      <stop offset="90%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </radialGradient>
+    <linearGradient id="metalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#334155" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#0b0f17"/>
+  <!-- Outer Wheel Rim -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="url(#rimGrad)" stroke-width="48"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#0ea5e9" stroke-width="4" stroke-opacity="0.6"/>
+  <!-- Center Hub -->
+  <circle cx="256" cy="256" r="70" fill="url(#metalGrad)" stroke="#38bdf8" stroke-width="6"/>
+  <!-- Top Center Marker (Racing Red) -->
+  <rect x="246" y="18" width="20" height="48" rx="8" fill="#ef4444"/>
+  <!-- Spokes -->
+  <path d="M120 256 H186 M326 256 H392 M256 326 V392" stroke="#64748b" stroke-width="24" stroke-linecap="round"/>
+  <!-- Center Logo Pulse -->
+  <circle cx="256" cy="256" r="24" fill="#38bdf8"/>
+</svg>

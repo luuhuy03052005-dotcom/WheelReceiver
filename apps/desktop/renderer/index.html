@@ -1,0 +1,103 @@
+<!doctype html><html lang="vi"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
+<title>Wheel — Receiver</title><link rel="icon" type="image/png" href="icon.png"><link rel="stylesheet" href="style.css"></head><body>
+<header><div class="brand-wrap"><img src="logo.png" alt="Wheel Receiver" class="brand-logo"><div><h1>WHEEL <span>RECEIVER</span></h1><p>Trung tâm kết nối & điều khiển</p></div></div><div id="status">Đang khởi động…</div><button id="pause" class="danger">Tạm ngưng input</button></header>
+<main>
+<section class="card pairing"><h2>Kết nối điện thoại</h2><p>Điện thoại phải truy cập được cùng mạng với địa chỉ bên dưới. QR sẽ tự điền PIN và tự ghép đôi.</p><img id="qr" alt="Mã QR kết nối" width="240" height="240"><p id="network-status"></p><div id="pin">------</div><p id="expiry"></p><button id="url">Đang tìm địa chỉ mạng…</button><div class="row"><button id="open-controller">Mở thử trên PC</button><button id="refresh">Tạo PIN mới</button><button id="refresh-network">Làm mới USB/mạng</button></div><hr><label>Adapter mạng<select id="network"></select></label><p id="transport">Chưa xác minh đường truyền</p><details open><summary>Kết nối bằng cáp USB</summary><p id="usb-status">Đang kiểm tra adapter USB…</p><p><strong>Android:</strong> dùng cáp có truyền dữ liệu, mở USB settings và bật USB tethering. <strong>iPhone:</strong> bật Personal Hotspot, chọn Tin cậy máy tính và cài Apple Devices/iTunes nếu Windows chưa có driver.</p><p>USB‑A, USB‑C hay Lightning đều dùng được nếu cáp có dây dữ liệu và Windows tạo adapter mạng. Cáp chỉ sạc không thể mở trang điều khiển.</p></details></section>
+<section class="card"><h2>Game & profile</h2><p id="game-detected">Chưa nhận diện game</p><label>Lựa chọn<select id="selection"><option value="auto">Auto · nhận diện game</option><option value="manual">Thủ công · khóa profile</option></select></label><label>Game<select id="game"></select></label><label>Hộp số<select id="mode"><option value="AT">Tự động</option><option value="MT">Số tay tuần tự</option><option value="MTC">Số tay + côn</option><option value="H">H-pattern + côn</option></select></label><label>Đầu ra<select id="backend"><option value="xinput">XInput</option><option value="vjoy">vJoy</option></select></label><button id="apply" class="primary">Áp dụng ở trạng thái neutral</button><button id="pending" hidden>Áp dụng profile được nhận diện</button><p id="profile-info"></p><hr><h2>Input gửi tới bridge</h2><div id="input">Vô-lăng 0 · Ga 0% · Phanh 0%</div><p>Không phải telemetry tốc độ/RPM của game.</p></section>
+<section class="card wide test-panel" id="test-panel">
+  <div class="test-header">
+    <div>
+      <h2>Bảng kiểm tra nút & tín hiệu (Live Input Test)</h2>
+      <p>Kiểm tra độ nhạy và tín hiệu thời gian thực từ vô-lăng, bàn đạp ga/phanh/côn, lẫy số, D-pad và các nút chức năng xe.</p>
+    </div>
+    <div class="test-badges">
+      <span id="test-signal-status" class="test-badge badge-idle">Chờ tín hiệu</span>
+      <span id="test-mode-badge" class="test-badge badge-mode">Chế độ: AT</span>
+      <div class="gear-badge-wrap">
+        <span class="gear-sub">CẤP SỐ</span>
+        <div id="test-gear-badge" class="test-gear-badge">N</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-grid">
+    <div class="test-card-inner">
+      <div class="test-card-title">BÀN ĐẠP & VÔ-LĂNG</div>
+      <div class="telemetry-list">
+        <div class="telemetry-row">
+          <div class="telemetry-info"><span>Vô-lăng</span><strong id="val-steer">0 (0.0°)</strong></div>
+          <div class="meter-track steer-track">
+            <div class="steer-center"></div>
+            <div id="bar-steer" class="meter-fill steer-fill"></div>
+          </div>
+        </div>
+        <div class="telemetry-row">
+          <div class="telemetry-info"><span>Ga (Throttle)</span><strong id="val-throttle">0%</strong></div>
+          <div class="meter-track"><div id="bar-throttle" class="meter-fill throttle-fill"></div></div>
+        </div>
+        <div class="telemetry-row">
+          <div class="telemetry-info"><span>Phanh (Brake)</span><strong id="val-brake">0%</strong></div>
+          <div class="meter-track"><div id="bar-brake" class="meter-fill brake-fill"></div></div>
+        </div>
+        <div class="telemetry-row">
+          <div class="telemetry-info"><span>Côn (Clutch)</span><strong id="val-clutch">0%</strong></div>
+          <div class="meter-track"><div id="bar-clutch" class="meter-fill clutch-fill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="test-card-inner">
+      <div class="test-card-title">NÚT ĐIỀU KHIỂN CHÍNH & LẪY SỐ</div>
+      <div class="primary-btns-grid">
+        <div class="tbtn" id="tbtn-a"><span class="tbtn-k">A</span><span class="tbtn-n">Phanh tay</span></div>
+        <div class="tbtn" id="tbtn-b"><span class="tbtn-k">B</span><span class="tbtn-n">Lên số / Paddle R</span></div>
+        <div class="tbtn" id="tbtn-x"><span class="tbtn-k">X</span><span class="tbtn-n">Xuống số / Paddle L</span></div>
+        <div class="tbtn" id="tbtn-y"><span class="tbtn-k">Y</span><span class="tbtn-n">Nitro / Boost</span></div>
+        <div class="tbtn" id="tbtn-lb"><span class="tbtn-k">LB</span><span class="tbtn-n">Côn nhanh</span></div>
+        <div class="tbtn" id="tbtn-rb"><span class="tbtn-k">RB</span><span class="tbtn-n">Đổi camera</span></div>
+      </div>
+
+      <div class="dpad-and-shifter">
+        <div class="dpad-section">
+          <div class="mini-label">D-PAD</div>
+          <div class="dpad-grid">
+            <div></div><div class="dpad-btn" id="tdpad-up">▲</div><div></div>
+            <div class="dpad-btn" id="tdpad-left">◀</div><div class="dpad-center">●</div><div class="dpad-btn" id="tdpad-right">▶</div>
+            <div></div><div class="dpad-btn" id="tdpad-down">▼</div><div></div>
+          </div>
+        </div>
+        <div class="shifter-section">
+          <div class="mini-label">CỬA SỐ (H-SHIFTER / AT)</div>
+          <div class="gates-row" id="h-gates-row">
+            <span class="gate-pill" id="tgate-r">R</span>
+            <span class="gate-pill" id="tgate-1">1</span>
+            <span class="gate-pill" id="tgate-2">2</span>
+            <span class="gate-pill" id="tgate-3">3</span>
+            <span class="gate-pill" id="tgate-4">4</span>
+            <span class="gate-pill" id="tgate-5">5</span>
+            <span class="gate-pill" id="tgate-6">6</span>
+            <span class="gate-pill active" id="tgate-n">N</span>
+          </div>
+          <div class="gates-row" id="at-gates-row">
+            <span class="gate-pill" id="tat-p">P</span>
+            <span class="gate-pill" id="tat-r">R</span>
+            <span class="gate-pill active" id="tat-n">N</span>
+            <span class="gate-pill" id="tat-d">D</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="test-aux-wrap">
+    <div class="aux-title-bar">
+      <div class="test-card-title">CHỨC NĂNG MỞ RỘNG & TIỆN ÍCH CABIN (EXTENDED)</div>
+      <div class="last-action-indicator" id="test-last-action">Thao tác gần nhất: Chưa có</div>
+    </div>
+    <div class="aux-chips-grid" id="aux-chips-container"></div>
+  </div>
+</section>
+<section class="card wide"><h2>Thiết bị tin cậy</h2><div id="devices">Chưa ghép đôi thiết bị.</div><hr><div class="row"><button id="restart">Khởi động lại bridge</button><button id="firewall">Thiết lập firewall LAN</button></div><p id="message" role="status"></p></section>
+<details class="card wide"><summary>Chẩn đoán</summary><pre id="logs"></pre></details>
+</main><script type="module" src="app.js"></script></body></html>

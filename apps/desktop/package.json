@@ -1,0 +1,20 @@
+{
+  "name": "@lan-racing-wheel/desktop",
+  "version": "1.0.0",
+  "description": "LAN Racing Wheel - Receiver Desktop App (Electron)",
+  "main": "bundle.cjs",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "@lan-racing-wheel/gateway": "*",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  }
+}

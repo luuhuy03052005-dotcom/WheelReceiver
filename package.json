@@ -1,0 +1,35 @@
+{
+  "name": "lan-racing-wheel-workspace",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "apps/desktop/bundle.cjs",
+  "description": "Phone-based LAN and USB-tethered racing wheel receiver for Windows",
+  "author": "LAN Racing Wheel",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "node --test packages/*/test/*.test.js apps/*/test/*.test.js tests/**/*.test.js",
+    "test:dotnet": "dotnet test apps/bridge/Bridge.Tests/Bridge.Tests.csproj",
+    "test:e2e-bridge": "node --test tests/integration/bridge-pipeline.verify.js",
+    "start": "node apps/receiver/src/index.js",
+    "start:gateway": "node apps/gateway/src/index.js",
+    "start:bridge": "dotnet run --project apps/bridge/Bridge/Bridge.csproj",
+    "desktop": "npm run build:bundle && npx electron apps/desktop/bundle.cjs",
+    "build:bridge": "dotnet publish apps/bridge/Bridge/Bridge.csproj -c Release -r win-x64 -o apps/bridge/publish",
+    "build:bundle": "npx esbuild apps/desktop/main.js --bundle --platform=node --format=cjs --target=node20 --outfile=apps/desktop/bundle.cjs --external:electron",
+    "build:desktop": "npm run build:bridge && npm run build:bundle && npx electron-builder --config apps/desktop/electron-builder.json"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.28.2"
+  }
+}

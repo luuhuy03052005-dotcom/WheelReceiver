@@ -1,0 +1,22 @@
+{
+  "name": "LAN Racing Wheel Controller",
+  "short_name": "RacingWheel",
+  "description": "Ultra-low-latency LAN Racing Wheel & Pedal Controller for iPhone",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0a0c10",
+  "theme_color": "#0f131a",
+  "icons": [
+    {
+      "src": "./icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

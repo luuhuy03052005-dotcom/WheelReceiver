@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "public": true,
+  "builds": [
+    {
+      "src": "apps/controller-web/public/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/packages/protocol/src/(.*)",
+      "dest": "/packages/protocol/src/$1"
+    },
+    {
+      "src": "/packages/control-math/src/(.*)",
+      "dest": "/packages/control-math/src/$1"
+    },
+    {
+      "src": "/packages/profiles/src/(.*)",
+      "dest": "/packages/profiles/src/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/apps/controller-web/public/$1"
+    }
+  ]
+}

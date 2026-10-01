@@ -1,0 +1,12 @@
+{
+  "name": "@lan-racing-wheel/control-math",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "@lan-racing-wheel/protocol": "*"
+  }
+}
