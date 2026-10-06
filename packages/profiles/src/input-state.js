@@ -14,9 +14,10 @@ export class InputState {
   snapshot(now=performance.now()){
     const active=new Set(this.held);
     for(const [id,until] of this.pulses){
-      if(now<until||!this.sent.has(id))active.add(id);
+      if(now<until||(!this.sent.has(id)&&now<until+200))active.add(id);
       else if(!this.held.has(id)){this.pulses.delete(id);this.sent.delete(id);}
     }
+    if(active.has('handbrake'))active.add('parkingBrake');
     if(this.gear)active.add(this.gear);
     let extended=0n,buttons=0;
     for(const a of ACTIONS)if(active.has(a.id))extended|=1n<<BigInt(a.index);
@@ -36,7 +37,11 @@ export class InputState {
       DPAD_UP:BUTTONS.DPAD_UP,
       DPAD_DOWN:BUTTONS.DPAD_DOWN,
       DPAD_LEFT:BUTTONS.DPAD_LEFT,
-      DPAD_RIGHT:BUTTONS.DPAD_RIGHT
+      DPAD_RIGHT:BUTTONS.DPAD_RIGHT,
+      park:BUTTONS.DPAD_UP,
+      reverse:BUTTONS.DPAD_DOWN,
+      neutral:BUTTONS.DPAD_LEFT,
+      drive:BUTTONS.DPAD_RIGHT
     };
     for(const [id,mask]of Object.entries(primary))if(active.has(id))buttons|=mask;
     return {extended,buttons,active};

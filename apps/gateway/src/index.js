@@ -16,13 +16,13 @@ export function createGatewayServer(options={}){
   const pairing=options.pairing||new PairingManager(options.dataDir&&path.join(options.dataDir,'devices.json'));
   const pipeClient=options.pipeClient||new PipeClient(options.pipePath);
   const runtime=options.runtime||new RuntimeManager({file:options.dataDir&&path.join(options.dataDir,'profiles.json'),detect:options.detect===true,discoverScript:options.discoverScript});
-  let owner=null,armed=false,configured=false,profilePending=false,lastSeq=null,lastValid=0,requireNeutral=true,closed=false;
+  let owner=null,armed=false,configured=false,profilePending=false,lastSeq=null,lastValid=0,requireNeutral=true,closed=false,neutralizedOnTimeout=false;
   let pendingA=null,pendingB=null,appliedRevision=0,stagingRevision=0;
   const send=(ws,msg)=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));};
   const status=()=>({type:'status',...runtime.status(),configured,profilePending,appliedRevision,armed,
     bridge:{connected:pipeClient.isConnected,ready:pipeClient.ready,...pipeClient.capabilities},
     input:pipeClient.lastFrame||null,
-    connectionTransport: (()=>{const address=owner?._socket?.localAddress?.replace(/^::ffff:/,'');
+    connectionTransport: (()=>{const address=(owner?._socket||owner?.socket)?.localAddress?.replace(/^::ffff:/,'');
       const network=runtime.status().networks.find(n=>n.address===address);
       return network?(network.usbVerified?'Phiên đang qua adapter mạng USB: ':'Phiên đang qua adapter '+network.kind+': ')+network.name+' ('+address+')':address?'Phiên đang qua '+address:null;})()});
   const broadcast=()=>send(owner,status());
@@ -34,7 +34,11 @@ export function createGatewayServer(options={}){
   };
   const onProfile=()=>{if(!armed)configure();else{profilePending=true;broadcast();}};
   runtime.on('profile',onProfile);
-  runtime.on('focus',focused=>{if(!focused&&armed&&runtime.targetPid!==0)pipeClient.sendNeutral();});
+  runtime.on('focus',focused=>{
+    if(!focused&&armed&&runtime.targetPid!==0)pipeClient.sendNeutral();
+    else if(focused&&armed){requireNeutral=true;}
+    broadcast();
+  });
   runtime.on('status',broadcast);
   pipeClient.on('connected',configure);
   pipeClient.on('status',message=>{
@@ -73,13 +77,18 @@ export function createGatewayServer(options={}){
         const state=decodeFrame(frame);
         if(lastSeq!==null&&!compareSequence(state.sequence,lastSeq).isNewer){pendingA=pendingB=null;return;}
         let frames;
+        let extClutch=0,extHasBits=false;
         if(pendingA&&pendingB&&pendingA[1]===state.sequence&&pendingB[1]===state.sequence){
+          extClutch=pendingA[2];
+          const lower=pendingA.readUInt32LE(4);
+          const upper=pendingB.readUInt32LE(2);
+          if(lower!==0||upper!==0)extHasBits=true;
           frames=[pendingA,pendingB,frame];
         }else{
           frames=[frame];
         }
         pendingA=pendingB=null;
-        const neutral=state.buttons===0&&Math.abs(state.steering)<=500&&state.brake===0&&state.throttle===0;
+        const neutral=state.buttons===0&&Math.abs(state.steering)<=500&&state.brake===0&&state.throttle===0&&extClutch===0&&!extHasBits;
         if(requireNeutral){
           if(!neutral){
             pipeClient.sendNeutral();
@@ -90,6 +99,13 @@ export function createGatewayServer(options={}){
         }
         if(profilePending&&neutral){
           configure();
+        }
+        if(runtime.targetPid!==0&&!runtime.focused){
+          pipeClient.sendNeutral();
+          lastSeq=state.sequence;
+          neutralizedOnTimeout=false;
+          send(ws,{type:'ack',sequence:lastSeq,revision:appliedRevision});
+          return;
         }
         if(pipeClient.sendFrames(frames)){lastSeq=state.sequence;neutralizedOnTimeout=false;send(ws,{type:'ack',sequence:lastSeq,revision:appliedRevision});}
         else pipeClient.sendNeutral();
@@ -128,11 +144,10 @@ export function createGatewayServer(options={}){
     });
     ws.on('close',()=>{if(ws===owner){pause('Mất kết nối điện thoại');owner=null;}});
   });
-  let neutralizedOnTimeout=false;
   const timer=setInterval(()=>{
     if(armed){
       const elapsed=Date.now()-lastValid;
-      if(elapsed>150&&!neutralizedOnTimeout){
+      if(elapsed>=135&&!neutralizedOnTimeout){
         pipeClient.sendNeutral();
         neutralizedOnTimeout=true;
       }
@@ -141,7 +156,7 @@ export function createGatewayServer(options={}){
       }
     }
     for(const [key,value]of attempts)if(Date.now()-value.start>60000)attempts.delete(key);
-  },25);timer.unref();
+  },10);timer.unref();
   const dispose=()=>{if(closed)return;closed=true;clearInterval(timer);runtime.close();pipeClient.close();};
   server.on('close',dispose);
   const close=async()=>{pause('Receiver đang đóng');for(const ws of wss.clients)ws.terminate();dispose();await new Promise(r=>server.listening?server.close(r):r());};

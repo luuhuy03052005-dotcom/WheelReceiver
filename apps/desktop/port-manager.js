@@ -15,7 +15,7 @@ const runPowerShell=(command,runner=execFile)=>new Promise((resolve,reject)=>run
 ],{windowsHide:true,timeout:8000},(error,stdout)=>error?reject(error):resolve(stdout.trim())));
 
 export async function findPortOwner(port,{runner=execFile}={}){
-  if(process.platform!=='win32')return null;
+  if(process.platform!=='win32' && runner===execFile)return null;
   const command=`$c=Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1; if($c){$ownerId=[int]$c.OwningProcess; $p=Get-CimInstance Win32_Process -Filter \"ProcessId=$ownerId\"; [pscustomobject]@{processId=$ownerId;name=$p.Name;executablePath=$p.ExecutablePath;commandLine=$p.CommandLine} | ConvertTo-Json -Compress}; exit 0`;
   const output=await runPowerShell(command,runner);
   return output?JSON.parse(output):null;

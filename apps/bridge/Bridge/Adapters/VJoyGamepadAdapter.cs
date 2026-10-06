@@ -78,25 +78,43 @@ namespace LanRacingWheel.Bridge.Adapters
             if (_controller.HasAxisRx) _controller.SetAxisRx(vJoyRx);
 
             ushort buttons = state.Buttons;
+            bool park = (buttons & 0x0001) != 0 || (state.ExtendedButtons & (1UL << 7)) != 0;
+            bool rev = (buttons & 0x0002) != 0 || (state.ExtendedButtons & (1UL << 6)) != 0;
+            bool neutral = (buttons & 0x0004) != 0 || (state.ExtendedButtons & (1UL << 9)) != 0;
+            bool drive = (buttons & 0x0008) != 0 || (state.ExtendedButtons & (1UL << 8)) != 0;
+            bool handbrake = (buttons & 0x1000) != 0 || (state.ExtendedButtons & (1UL << 34)) != 0;
+            bool camera = (buttons & 0x0200) != 0 || (state.ExtendedButtons & (1UL << 58)) != 0;
+
             if (_controller.ButtonCount >= 16)
             {
-                for (int i=0;i<64;i++) UpdateButton((uint)(i<10?i+1:i+7), (state.ExtendedButtons & (1UL<<i))!=0);
+                for (int i = 0; i < 64; i++)
+                {
+                    bool pressed = (state.ExtendedButtons & (1UL << i)) != 0;
+                    if (i == 6) pressed = rev;
+                    else if (i == 7) pressed = park;
+                    else if (i == 8) pressed = drive;
+                    else if (i == 9) pressed = neutral;
+                    else if (i == 34) pressed = handbrake;
+                    else if (i == 58) pressed = camera;
 
-                // Action Buttons
-                UpdateButton(11, (buttons & 0x1000) != 0); // Handbrake (A)
+                    UpdateButton((uint)(i < 10 ? i + 1 : i + 7), pressed);
+                }
+
+                // Action Buttons (11-16)
+                UpdateButton(11, handbrake); // Handbrake (A)
                 UpdateButton(12, (buttons & 0x2000) != 0); // Shift Up (B)
                 UpdateButton(13, (buttons & 0x4000) != 0); // Shift Down (X)
                 UpdateButton(14, (buttons & 0x8000) != 0); // Nitro (Y)
-                UpdateButton(15, (buttons & 0x0200) != 0); // Camera (RB)
+                UpdateButton(15, camera); // Camera (RB)
                 UpdateButton(16, (buttons & 0x0100) != 0); // Clutch (LB)
 
-                // DPad as vJoy buttons for AT gear selection
+                // DPad as vJoy buttons for AT gear selection (also mirrored to 67-70 if device has 70+ buttons)
                 if (_controller.ButtonCount >= 70)
                 {
-                    UpdateButton(67, (buttons & 0x0001) != 0); // DPad Up (P · Park)
-                    UpdateButton(68, (buttons & 0x0002) != 0); // DPad Down (R · Reverse)
-                    UpdateButton(69, (buttons & 0x0004) != 0); // DPad Left (N · Neutral)
-                    UpdateButton(70, (buttons & 0x0008) != 0); // DPad Right (D · Drive)
+                    UpdateButton(67, park); // DPad Up (P - Park)
+                    UpdateButton(68, rev); // DPad Down (R - Reverse)
+                    UpdateButton(69, neutral); // DPad Left (N - Neutral)
+                    UpdateButton(70, drive); // DPad Right (D - Drive)
                 }
             }
             else
@@ -104,19 +122,19 @@ namespace LanRacingWheel.Bridge.Adapters
                 // Compact mode for standard 8-button vJoy devices
                 if (state.GearMode == 4)
                 {
-                    for (int i=0;i<7;i++) UpdateButton((uint)(i+1), (state.ExtendedButtons & (1UL<<i))!=0);
-                    UpdateButton(8, (buttons & 0x1000) != 0); // Handbrake
+                    for (int i = 0; i < 7; i++) UpdateButton((uint)(i + 1), (state.ExtendedButtons & (1UL << i)) != 0);
+                    UpdateButton(8, handbrake); // Handbrake
                 }
                 else
                 {
-                    UpdateButton(1, (buttons & 0x1000) != 0); // Handbrake (A)
+                    UpdateButton(1, handbrake); // Handbrake (A)
                     UpdateButton(2, (buttons & 0x2000) != 0); // Shift Up (B)
                     UpdateButton(3, (buttons & 0x4000) != 0); // Shift Down (X)
-                    UpdateButton(4, (buttons & 0x8000) != 0); // Nitro (Y)
-                    UpdateButton(5, (buttons & 0x0200) != 0); // Camera (RB)
-                    UpdateButton(6, (buttons & 0x0100) != 0); // Clutch (LB)
-                    UpdateButton(7, (buttons & 0x0001) != 0 || (buttons & 0x0004) != 0);
-                    UpdateButton(8, (buttons & 0x0002) != 0 || (buttons & 0x0008) != 0);
+                    UpdateButton(4, (buttons & 0x8000) != 0 || camera); // Nitro / Camera
+                    UpdateButton(5, park); // Park (P) -> Button 5
+                    UpdateButton(6, rev); // Reverse (R) -> Button 6
+                    UpdateButton(7, neutral); // Neutral (N) -> Button 7
+                    UpdateButton(8, drive); // Drive (D) -> Button 8
                 }
             }
         }

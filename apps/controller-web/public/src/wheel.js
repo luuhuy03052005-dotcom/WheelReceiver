@@ -30,7 +30,7 @@ export class SteeringWheel {
 
     canvas.addEventListener('pointerdown', (e) => {
       if (window.app?.layoutEditor?.editing) return;
-      if (!this.enabled || !window.app?.armed || this.pointerId !== null) return;
+      if (this.pointerId !== null) return;
       e.preventDefault();
       this.pointerId = e.pointerId;
       try {

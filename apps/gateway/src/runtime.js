@@ -22,6 +22,13 @@ export function networkChoices(interfaces=os.networkInterfaces(),adapters=[]){
     return {name,address:i.address,description,kind:usb?'usb-network':/wi-?fi|wireless|wlan/i.test(evidence)?'wifi':'lan',usbVerified:usb&&!!adapter,linkLocal,usable:!linkLocal};
   }).filter(Boolean));
 }
+
+const BLOCKED_SYSTEM_EXES=new Set([
+  'cmd.exe','powershell.exe','pwsh.exe','explorer.exe','rundll32.exe',
+  'svchost.exe','taskmgr.exe','conhost.exe','mshta.exe','cscript.exe',
+  'wscript.exe','regedit.exe','bash.exe','sh.exe','wt.exe'
+]);
+
 export class RuntimeManager extends EventEmitter{
   constructor(options={}){
     super();this.discoverScript=options.discoverScript;this.file=options.file;this.settings={selection:'auto',manualGame:'generic',profiles:{},custom:{}};
@@ -78,7 +85,12 @@ export class RuntimeManager extends EventEmitter{
     if(selection)this.settings.selection=selection;
     if(gameId)this.settings.manualGame=gameId;
     const id=gameId||this.profile.gameId;
-    if(executable){if(typeof executable!=='string'||!/^[\w. -]+\.exe$/i.test(executable))throw new Error('Tên tiến trình phải kết thúc bằng .exe');this.settings.custom[executable.toLowerCase()]=id;}
+    if(executable){
+      if(typeof executable!=='string'||!/^[\w. -]+\.exe$/i.test(executable))throw new Error('Tên tiến trình phải kết thúc bằng .exe');
+      const exeLower=executable.toLowerCase().trim();
+      if(BLOCKED_SYSTEM_EXES.has(exeLower))throw new Error('Không thể gán tiến trình hệ thống làm game');
+      this.settings.custom[exeLower]=id;
+    }
     if(profile)this.settings.profiles[id]=createProfile(id,profile);
     this.profile=createProfile(id,this.settings.profiles[id]);
     const match=this.matches.find(m=>m.gameId===id&&m.foreground);this.targetPid=match?.pid||0;this.focused=!!match;

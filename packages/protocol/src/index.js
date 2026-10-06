@@ -65,7 +65,7 @@ export function configFrames(profile,foregroundPid=0) {
   config[1]=profile.backend==='xinput'?1:profile.backend==='vjoy'?2:0;
   new DataView(config.buffer).setUint32(4,foregroundPid>>>0,true);
   const frames=[config];
-  const defaults={0:49,1:50,2:51,3:52,4:53,5:54,6:55,11:76,12:75,13:74,16:219,17:221,18:70,20:80,21:88,25:72,26:69,27:83,34:32,35:67,46:86,48:188,49:190,50:222,51:186,52:66,54:84,57:79,58:57,59:112,60:113,61:114,62:27,63:82};
+  const defaults={0:49,1:50,2:51,3:52,4:53,5:54,6:55,7:48,8:68,9:78,11:76,12:75,13:74,16:219,17:221,18:70,20:80,21:88,25:72,26:69,27:83,34:32,35:67,46:86,48:188,49:190,50:222,51:186,52:66,54:84,57:79,58:57,59:112,60:113,61:114,62:27,63:82};
   for(let index=0;index<64;index++){
     const b=new Uint8Array(8);b[0]=BINDING;b[1]=index;
     const isGear=index<10;

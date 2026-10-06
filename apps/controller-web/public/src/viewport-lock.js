@@ -1,7 +1,12 @@
 export function viewportBox(win){
   const viewport=win.visualViewport;
   const width=viewport?.width||win.innerWidth||win.document?.documentElement?.clientWidth||1;
-  const height=viewport?.height||win.innerHeight||win.document?.documentElement?.clientHeight||1;
+  let height=viewport?.height||win.innerHeight||win.document?.documentElement?.clientHeight||1;
+  const active=win.document?.activeElement;
+  const isInputFocused=active&&(active.tagName==='INPUT'||active.tagName==='TEXTAREA'||active.tagName==='SELECT');
+  if(!isInputFocused&&win.innerHeight&&height<win.innerHeight*0.75){
+    height=win.innerHeight;
+  }
   return {
     width:Math.max(1,Math.round(width)),
     height:Math.max(1,Math.round(height)),
@@ -53,6 +58,7 @@ export function installViewportLock(win=window,doc=document){
   win.addEventListener('orientationchange',schedule,{passive:true});
   win.visualViewport?.addEventListener('resize',onViewportResize,{passive:true});
   win.visualViewport?.addEventListener('scroll',onViewportScroll,{passive:true});
+  doc.addEventListener('focusout',()=>{schedule();setTimeout(schedule,80);setTimeout(schedule,250);});
   doc.addEventListener('gesturestart',preventGesture,{passive:false});
   doc.addEventListener('gesturechange',preventGesture,{passive:false});
   doc.addEventListener('gestureend',preventGesture,{passive:false});

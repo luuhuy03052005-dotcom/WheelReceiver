@@ -8,7 +8,10 @@ public sealed class RoutedGamepadAdapter : IGamepadAdapter
     private IGamepadAdapter? _output;
     private readonly bool _mock;
     private readonly byte[] _keys=new byte[64];
-    private HashSet<byte> _pressed=new();
+    private readonly HashSet<byte> _pressed=new();
+    private readonly HashSet<byte> _desired=new();
+    private long _lastFocusCheckMs;
+    private bool _cachedFocused=true;
     public uint TargetPid {get;set;}
     public string Backend {get;private set;}="none";
     public string? Error {get;private set;}
@@ -19,7 +22,7 @@ public sealed class RoutedGamepadAdapter : IGamepadAdapter
     public void Initialize()=>Configure(1);
     public void Configure(byte backend)
     {
-        ResetToNeutral();Array.Clear(_keys);TargetPid=0;
+        ResetToNeutral();Array.Clear(_keys);TargetPid=0;_lastFocusCheckMs=0;_cachedFocused=true;
         string desired=_mock?"mock":backend==2?"vjoy":"xinput";
         if(Backend==desired && IsConnected)return;
         _output?.Dispose();_output=null;Error=null;Backend="none";
@@ -32,34 +35,42 @@ public sealed class RoutedGamepadAdapter : IGamepadAdapter
     public void UpdateState(ControllerState state)
     {
         CurrentState=state;
-        ulong virtualBits=state.ExtendedButtons;
-        var desired=new HashSet<byte>();
-        bool focused=false;
+        _desired.Clear();
+        bool focused=true;
         if(!_mock && OperatingSystem.IsWindows()){
             if(TargetPid!=0){
-                try {
-                    GetWindowThreadProcessId(GetForegroundWindow(),out uint foreground);
-                    using var p = System.Diagnostics.Process.GetProcessById((int)TargetPid);
-                    focused=(foreground==TargetPid);
-                } catch {
-                    TargetPid=0;
-                    focused=false;
+                long now=Environment.TickCount64;
+                if(now-_lastFocusCheckMs>100){
+                    _lastFocusCheckMs=now;
+                    IntPtr hwnd=GetForegroundWindow();
+                    GetWindowThreadProcessId(hwnd,out uint foreground);
+                    _cachedFocused=(foreground==TargetPid);
                 }
+                focused=_cachedFocused;
             } else {
-                focused=false;
+                focused=true;
             }
         }
         else if(_mock){
             focused=true;
         }
-        for(int i=0;i<64;i++)if(_keys[i]!=0){
-            virtualBits &= ~(1UL<<i);
-            if(focused && (state.ExtendedButtons&(1UL<<i))!=0)desired.Add(_keys[i]);
+        if(focused){
+            for(int i=0;i<64;i++){
+                byte key=_keys[i];
+                if(key!=0 && (state.ExtendedButtons&(1UL<<i))!=0){
+                    _desired.Add(key);
+                }
+            }
         }
-        foreach(byte key in _pressed.Except(desired))SendKey(key,false);
-        foreach(byte key in desired.Except(_pressed))SendKey(key,true);
-        _pressed=desired;
-        _output?.UpdateState(state with {ExtendedButtons=virtualBits});
+        foreach(byte key in _pressed){
+            if(!_desired.Contains(key))SendKey(key,false);
+        }
+        foreach(byte key in _desired){
+            if(!_pressed.Contains(key))SendKey(key,true);
+        }
+        _pressed.Clear();
+        foreach(byte key in _desired)_pressed.Add(key);
+        _output?.UpdateState(state);
     }
     public void ResetToNeutral(){foreach(byte key in _pressed)SendKey(key,false);_pressed.Clear();_output?.ResetToNeutral();CurrentState=ControllerState.Neutral;}
     public void Dispose(){ResetToNeutral();_output?.Dispose();_output=null;}

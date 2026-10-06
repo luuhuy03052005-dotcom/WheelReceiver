@@ -40,8 +40,8 @@ export const GAMES=[
   {id:'generic',name:'Game tùy chỉnh',executables:[],backend:'xinput',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
   {id:'forza',name:'Forza Horizon',executables:['forzahorizon4.exe','forzahorizon5.exe'],backend:'xinput',range:360,modes:['AT','MT','MTC','H'],groups:['cabin','game']},
   {id:'beamng',name:'BeamNG.drive',executables:['beamng.drive.x64.exe','beamng.drive.x86.exe','beamng.drive.exe'],backend:'vjoy',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
-  {id:'ets2',name:'Euro Truck Simulator 2',executables:['eurotrucks2.exe'],backend:'vjoy',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
-  {id:'ats',name:'American Truck Simulator',executables:['amtrucks.exe'],backend:'vjoy',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
+  {id:'ets2',name:'Euro Truck Simulator 2',executables:['eurotrucks2.exe','eurotrucks2_x64.exe','eurotrucks.exe','truckersmp-launcher.exe'],backend:'vjoy',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
+  {id:'ats',name:'American Truck Simulator',executables:['amtrucks.exe','amtrucks64.exe','amtrucks_x64.exe'],backend:'vjoy',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
   {id:'assetto',name:'Assetto Corsa',executables:['acs.exe','acs_x86.exe','acc.exe'],backend:'vjoy',range:900,modes:['AT','MT','MTC','H'],groups:['lighting','cabin','assistance','game']},
   {id:'dirt',name:'DiRT Rally / EA WRC',executables:['dirtrally2.exe','wrc.exe','wrc-win64-shipping.exe'],backend:'xinput',range:540,modes:['AT','MT','MTC','H'],groups:['cabin','game']}
 ];
@@ -71,6 +71,9 @@ export const DEFAULT_KEYS = Object.freeze({
   4: 53,   // gear5: 5 (53)
   5: 54,   // gear6: 6 (54)
   6: 55,   // reverse: 7 (55)
+  7: 48,   // park: 0 (48)
+  8: 68,   // drive: D (68)
+  9: 78,   // neutral: N (78)
   11: 76,  // lowBeam: L (76)
   12: 75,  // highBeam: K (75)
   13: 74,  // flash: J (74)
@@ -108,5 +111,6 @@ export function supportsAction(action,profile,capabilities={}) {
   const defaultKey = (isGear && profile.backend === 'vjoy') ? 0 : (DEFAULT_KEYS[action.index] || 0);
   const key = profile.keys[action.index] || defaultKey;
   if(key) return capabilities.keyboard!==false;
-  return profile.backend==='vjoy' && action.vjoy <= (capabilities.buttons||0);
+  const maxButtons = capabilities.buttons !== undefined ? capabilities.buttons : (profile.backend==='vjoy'?70:0);
+  return profile.backend==='vjoy' && action.vjoy <= maxButtons;
 }
