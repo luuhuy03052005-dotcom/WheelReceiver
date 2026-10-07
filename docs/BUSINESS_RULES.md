@@ -31,15 +31,18 @@
 - **BR-PED-03:** Apply lower deadzone, upper saturation, and curve before quantization.
 
 ## Transmission & Modes
-- **BR-MODE-01:** AT mode hides/disables clutch and shift controls.
-- **BR-MODE-02:** MT mode enables clutch, shift up, and shift down.
-- **BR-MODE-03:** Switching MT to AT releases clutch and both shift buttons in next state.
-- **BR-MODE-04:** Switching modes does not reset steering or pedals.
+- **BR-MODE-01:** AT mode allows automatic gears (P, R, N, D) while strictly blocking clutch, paddle shift up/down, and manual gears 1-6.
+- **BR-MODE-02:** MT mode allows sequential paddle shift up and down while strictly blocking clutch and all direct transmission gears.
+- **BR-MODE-03:** MTC mode allows sequential paddle shift up and down and clutch while strictly blocking direct transmission gears.
+- **BR-MODE-04:** H mode allows direct transmission gears (1-6, R) and clutch with strict mutual exclusivity (at most 1 gear bit active); blocks sequential paddle shifts and automatic gears (P, D, N).
+- **BR-MODE-05:** Switching from MT/MTC/H to AT immediately releases clutch, sequential shift, and manual gear bits in next state frame.
+- **BR-MODE-06:** Switching transmission modes does not reset steering or pedals.
 - **BR-CLT-01:** Setting is named `Clutch activation threshold`.
 - **BR-CLT-02:** Set XInput clutch button (LB) while clutch input >= threshold.
 - **BR-GEAR-01:** Convert one shift tap into exactly one button pulse.
 - **BR-GEAR-02:** Hold shift pulse for at least 50 ms so it is registered by game polling.
-- **BR-GEAR-03:** Do not repeat a gear action until a new press edge occurs.
+- **BR-GEAR-03:** Do not repeat a gear action until a new press edge occurs even if held continuously.
+- **BR-GEAR-04:** Rapid taps of a pulse action maintain an observable release gap (>= 50 ms, bit=0) between successive active assertions.
 
 ## Fail-Safe
 - **BR-SAFE-01:** Neutralize virtual controller within 150 ms of missing valid input.

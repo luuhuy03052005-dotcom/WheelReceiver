@@ -6,14 +6,14 @@ import {PedalControl} from './pedals.js';
 import {LayoutEditor} from './layout-editor.js';
 import {HPatternShifter,H_SLOTS} from './h-shifter.js';
 import {installViewportLock} from './viewport-lock.js';
-import {ACTIONS,GAMES,GROUPS,MODES,DEFAULT_KEYS,createProfile,supportsAction} from '/packages/profiles/src/index.js';
-import {InputState} from '/packages/profiles/src/input-state.js';
+import {ACTIONS,GAMES,GROUPS,MODES,DEFAULT_KEYS,createProfile,supportsAction} from '../../../../packages/profiles/src/index.js';
+import {InputState} from '../../../../packages/profiles/src/input-state.js';
 const $=id=>document.getElementById(id);
 const icon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5c5 0 7 3 7 7s-2 7-7 7V5ZM3 7h6M2 12h7M3 17h6"/></svg>';
 class ControllerApp{
   constructor(){
-    this.ws=null;this.armed=false;this.authenticated=false;this.sequence=0;this.pending=new Map();this.input=new InputState();
-    this.profile=createProfile();this.capabilities={};this.revision=0;this.stats={count:0,start:performance.now(),hz:0};
+    this.ws=null;this.armed=false;this.authenticated=false;this.sequence=0;this.pending=new Map();this.input=new InputState();this.sessionEpoch=1;this.input.requireTransmittedGap=true;
+    this.profile=createProfile();this.input.setMode(this.profile.mode);this.capabilities={};this.revision=0;this.stats={count:0,start:performance.now(),hz:0};
     this.angleOutput=$('wheel-angle');this.diagnosticsOutput=$('diagnostics');this.lastAngle=null;
     this.wheel=new SteeringWheel($('wheel-canvas'),{steeringRangeDeg:settingsMgr.settings.steeringRangeDeg,autoCenterMs:settingsMgr.settings.autoCenterMs});
     this.pedals={};this.travel={throttle:0,brake:0,clutch:0};
@@ -61,6 +61,16 @@ class ControllerApp{
       else this.wake();
     });
     window.addEventListener('pagehide',()=>this.pause());
+    const onGeometryChange=()=>{
+      if(this.wheel.isDragging)this.wheel.cancelDrag();
+      for(const p of Object.values(this.pedals)){
+        if(p.pointerId!==null)p.reset();
+      }
+      if(this.hShifter.pointer!==null)this.hShifter.cancelDrag();
+      if(this.layoutEditor.drag)this.layoutEditor.cancelDrag();
+    };
+    window.addEventListener('resize',onGeometryChange,{passive:true});
+    window.addEventListener('orientationchange',onGeometryChange,{passive:true});
     this.connect(qrNonce);this.loop(performance.now());
     this.lastServerMessage=Date.now();
     this.pingTimer=setInterval(()=>{
@@ -119,11 +129,16 @@ class ControllerApp{
       $('connection-label').textContent='Đang điều khiển';$('connection-dot').classList.add('connected');
       this.notify('Đang điều khiển · sẵn sàng.');
     }
+    else if(msg.type==='resume_rejected'){
+      this.setArmed(false);
+      this.notify('Chưa thể lái: '+(msg.message||msg.reason));
+      this.updateArmButton();
+    }
     else if(msg.type==='ack'){
       const snapshot=this.pending.get(msg.sequence);
-      if(snapshot&&msg.revision===this.revision){this.input.acknowledge(snapshot);this.pending.delete(msg.sequence);this.stats.count++;}
+      if(snapshot&&snapshot.sessionEpoch===this.sessionEpoch&&msg.revision===this.revision){this.input.acknowledge(snapshot);this.pending.delete(msg.sequence);this.stats.count++;}
     }else if(msg.type==='require_neutral'){
-      this.sendStateFrame(true);
+      this.reset();
       this.notify('Đưa vô-lăng và bàn đạp về tâm để mở khóa điều khiển');
     }else if(msg.type==='pong')$('rtt').textContent=Math.round(performance.now()-msg.clientTime)+' ms RTT';
   }
@@ -131,14 +146,15 @@ class ControllerApp{
     this.serverStatus=msg;this.capabilities=msg.bridge||{};this.revision=msg.appliedRevision;
     const changed=this.profileRevision!==msg.revision||this.lastBackend!==JSON.stringify(this.capabilities);
     if(changed){
-      this.profileRevision=msg.revision;this.lastBackend=JSON.stringify(this.capabilities);this.profile=createProfile(msg.profile.gameId,msg.profile);
+      this.reset();
+      this.profileRevision=msg.revision;this.lastBackend=JSON.stringify(this.capabilities);this.profile=createProfile(msg.profile.gameId,msg.profile);this.input.setMode(this.profile.mode);
       this.wheel.setRange(this.profile.range);this.layoutEditor.useProfile(this.profile.gameId);this.renderControls();this.fillProfileForm(msg);
     }
     $('profile-name').textContent=this.profile.name;
     $('profile-detail').textContent=MODES[this.profile.mode]+' · '+(msg.focused?'Game ở cửa sổ chính':'Sẵn sàng điều khiển');
     $('selection-badge').textContent=msg.selection==='auto'?'AUTO':'THỦ CÔNG';
     $('mode-badge').textContent=this.profile.mode;$('wheel-range').textContent=this.profile.range+'° lock-to-lock';
-    $('arm').disabled=this.armed||!this.authenticated;
+    this.updateArmButton();
     $('apply-pending').hidden=!msg.profilePending;
     $('output-state').textContent='OUTPUT · '+(msg.bridge.backend||'none').toUpperCase()+(msg.bridge.backend==='mock'?' · CHỈ KIỂM THỬ':'')+(msg.bridge.error?' · '+msg.bridge.error:'');
     $('capabilities').textContent=msg.bridge.backend==='vjoy'?msg.bridge.buttons+'/70 nút vJoy khả dụng. '+(msg.bridge.buttons<70?'Cấu hình ít nhất 70 nút để dùng đủ chức năng.':'Đủ đầu ra cho toàn bộ chức năng; hãy gán trong game.'):'XInput hỗ trợ điều khiển chính; nút phụ cần ánh xạ phím.';
@@ -153,16 +169,62 @@ class ControllerApp{
   }
   setArmed(value){
     this.armed=Boolean(value);if(!this.armed)this.reset();
-    this.wheel.enabled=this.armed;for(const p of Object.values(this.pedals))p.enabled=this.armed;
+    this.wheel.setEnabled?.(this.armed);for(const p of Object.values(this.pedals))p.setEnabled?.(this.armed);
     this.hShifter.setEnabled(this.armed&&this.profile.mode==='H');
     $('stop').disabled=!this.armed;
-    $('arm').disabled=this.armed||!this.authenticated;
+    this.updateArmButton();
     if(this.armed){
       this.layoutEditor.setEditing(false);
       if(!this.isSettingsOpen)$('setup-panel').hidden=true;
     }
   }
-  reset(){this.input.reset();this.pending.clear();this.wheel.resetToCenter();for(const p of Object.values(this.pedals))p.reset();this.hShifter.reset(false);document.querySelectorAll('.active').forEach(el=>el.classList.remove('active'));$('gear-display').textContent=this.profile.mode==='H'?'N':'—';}
+  reset(){
+    this.input.reset();
+    this.sessionEpoch=this.input.sessionEpoch;
+    this.pending.clear();
+    this.travel={throttle:0,brake:0,clutch:0};
+    this.wheel.resetToCenter();
+    for(const p of Object.values(this.pedals))p.reset();
+    this.hShifter.reset(false);
+    this.layoutEditor.cancelDrag?.();
+    document.querySelectorAll('.action-button').forEach(el=>{
+      el._resetPointer?.();
+    });
+    $('gear-display').textContent=this.profile.mode==='H'?'N':'—';
+    this.updateArmButton();
+  }
+  updateArmButton(){
+    const armBtn=$('arm');
+    if(!armBtn)return;
+    if(this.armed){
+      armBtn.disabled=true;
+      armBtn.title='Đang trong phiên lái (Driving)';
+      return;
+    }
+    if(!this.authenticated){
+      armBtn.disabled=true;
+      armBtn.title='Chưa kết nối hoặc chưa xác thực controller';
+      return;
+    }
+    if(!this.capabilities?.connected){
+      armBtn.disabled=true;
+      armBtn.title='Bridge chưa kết nối với Gateway';
+      return;
+    }
+    if(!this.capabilities?.ready){
+      armBtn.disabled=true;
+      armBtn.title='Bridge chưa sẵn sàng';
+      return;
+    }
+    const bridgeOk=this.serverStatus?.configured&&!this.serverStatus?.profilePending&&(this.serverStatus?.appliedRevision===this.serverStatus?.revision);
+    if(!bridgeOk){
+      armBtn.disabled=true;
+      armBtn.title='Đang cấu hình profile...';
+      return;
+    }
+    armBtn.disabled=false;
+    armBtn.title='Bắt đầu điều khiển (Driving)';
+  }
   neutralizeAll(){this.pause();}
   pause(){if(this.authenticated)this.send({type:'pause'});this.setArmed(false);}
   openPanel(id){
@@ -178,17 +240,100 @@ class ControllerApp{
   }
   bindButton(button,id){
     let pointer=null;
-    const down=()=>{
-      if(!this.armed||this.layoutEditor?.editing||button.disabled)return;
-      this.input.press(id);button.classList.add('active');
+    if(!button._btnSourceId){
+      button._btnSourceId='btn:'+id+':'+Math.random().toString(36).slice(2,7);
+    }
+    const touchSourceId=button._btnSourceId;
+    if(!button._heldKeys){
+      button._heldKeys=new Set();
+    }
+    const updateVisual=()=>{
+      const isPressed=(pointer!==null)||(button._heldKeys&&button._heldKeys.size>0);
+      button.classList.toggle('active',isPressed);
     };
-    const up=()=>{this.input.release(id);button.classList.remove('active');};
-    button.addEventListener('pointerdown',e=>{if(pointer!==null)return;e.preventDefault();pointer=e.pointerId;button.setPointerCapture(pointer);down();});
-    const release=e=>{if(e.pointerId!==pointer)return;pointer=null;up();if(button.hasPointerCapture(e.pointerId))button.releasePointerCapture(e.pointerId);};
-    for(const type of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(type,release);
-    button.addEventListener('keydown',e=>{if([' ','Enter'].includes(e.key)&&!e.repeat){e.preventDefault();down();}});
-    button.addEventListener('keyup',e=>{if([' ','Enter'].includes(e.key)){e.preventDefault();up();}});
-    button.addEventListener('blur',up);
+    const downTouch=()=>{
+      if(!this.armed||this.layoutEditor?.editing||button.disabled)return;
+      this.input.press(id,touchSourceId);
+      updateVisual();
+    };
+    const upTouch=()=>{
+      this.input.release(id,touchSourceId);
+      updateVisual();
+    };
+    const downKey=(code)=>{
+      if(!this.armed||this.layoutEditor?.editing||button.disabled)return;
+      if(button._heldKeys.has(code))return;
+      button._heldKeys.add(code);
+      const kbdSourceId='kbd:'+button._btnSourceId+':'+code;
+      this.input.press(id,kbdSourceId);
+      updateVisual();
+    };
+    const upKey=(code)=>{
+      if(!button._heldKeys.has(code))return;
+      button._heldKeys.delete(code);
+      const kbdSourceId='kbd:'+button._btnSourceId+':'+code;
+      this.input.release(id,kbdSourceId);
+      updateVisual();
+    };
+    button._resetPointer=()=>{
+      if(pointer!==null){
+        const idToRelease=pointer;
+        pointer=null;
+        if(idToRelease!==null&&button.hasPointerCapture?.(idToRelease)){
+          try{button.releasePointerCapture(idToRelease);}catch{}
+        }
+        this.input.release(id,touchSourceId);
+      }
+      if(button._heldKeys&&button._heldKeys.size>0){
+        for(const code of button._heldKeys){
+          const kbdSourceId='kbd:'+button._btnSourceId+':'+code;
+          this.input.release(id,kbdSourceId);
+        }
+        button._heldKeys.clear();
+      }
+      updateVisual();
+    };
+    button._cleanup=button._resetPointer;
+    button.addEventListener('pointerdown',e=>{
+      if(pointer!==null)return;
+      if(!this.armed||this.layoutEditor?.editing||button.disabled)return;
+      e.preventDefault();
+      pointer=e.pointerId;
+      try{button.setPointerCapture(pointer);}catch{}
+      downTouch();
+    });
+    const releasePointer=e=>{
+      if(e.pointerId!==pointer)return;
+      const idToRelease=pointer;
+      pointer=null;
+      if(idToRelease!==null&&button.hasPointerCapture?.(idToRelease)){
+        try{button.releasePointerCapture(idToRelease);}catch{}
+      }
+      upTouch();
+    };
+    for(const type of ['pointerup','pointercancel','lostpointercapture']){
+      button.addEventListener(type,releasePointer);
+    }
+    button.addEventListener('keydown',e=>{
+      if(e.repeat)return;
+      if([' ','Enter'].includes(e.key)){
+        e.preventDefault();
+        downKey(e.code);
+      }
+    });
+    button.addEventListener('keyup',e=>{
+      if([' ','Enter'].includes(e.key)){
+        e.preventDefault();
+        upKey(e.code);
+      }
+    });
+    button.addEventListener('blur',()=>{
+      if(button._heldKeys&&button._heldKeys.size>0){
+        for(const code of Array.from(button._heldKeys)){
+          upKey(code);
+        }
+      }
+    });
   }
   actionButton(action){
     const button=document.createElement('button');button.className='action-button';button.dataset.action=action.id;
@@ -251,8 +396,10 @@ class ControllerApp{
   updateBinding(){const index=$('binding-action').value;$('binding-key').value=String(this.profile.keys[index]||0);}
   saveProfile(){
     if(this.armed){this.notify('Tạm ngưng trước khi đổi profile.');return;}
+    this.reset();
     const id=$('game').value;
     const profile=createProfile(id,{...this.profile,mode:$('mode').value,backend:$('backend').value,range:Number($('range').value)});
+    this.profile=profile;this.input.setMode(profile.mode);
     this.send({type:'profile',selection:$('selection').value,gameId:id,profile,executable:$('executable').value.trim()||undefined});
     this.notify('Đang áp dụng profile ở trạng thái neutral…');
   }
@@ -272,7 +419,7 @@ class ControllerApp{
     $('game').onchange=()=>{this.populateModes();const p=createProfile($('game').value);$('backend').value=p.backend;$('range').value=p.range;$('range-label').textContent=p.range+'°';};
     $('apply-profile').onclick=()=>this.saveProfile();$('apply-pending').onclick=()=>{this.pause();this.send({type:'apply-profile'});};
     $('save-binding').onclick=()=>{this.pause();this.profile.keys[$('binding-action').value]=Number($('binding-key').value);this.saveProfile();$('binding-status').textContent='Đã yêu cầu lưu binding; gán chức năng tương ứng trong game.';};
-    $('arm').onclick=()=>{this.isSettingsOpen=false;this.openPanel('drive-panel');this.reset();this.send({type:'resume',revision:this.revision});this.wake();};
+    $('arm').onclick=()=>{if($('arm').disabled)return;this.isSettingsOpen=false;this.openPanel('drive-panel');this.reset();this.send({type:'resume',revision:this.serverStatus?.appliedRevision??this.revision});this.wake();};
     $('stop').onclick=()=>this.pause();$('setup-open').onclick=()=>this.openPanel('setup-panel');$('setup-close').onclick=()=>{this.isSettingsOpen=false;this.openPanel('drive-panel');};
     $('layout-edit').onclick=()=>{this.isSettingsOpen=false;this.openPanel('drive-panel');this.layoutEditor.setEditing(!this.layoutEditor.editing);};
     $('layout-done').onclick=()=>this.layoutEditor.setEditing(false);
@@ -346,11 +493,10 @@ class ControllerApp{
     return undefined;
   }
   sendStateFrame(neutral=false){
-    if(!this.armed||this.ws?.readyState!==1||document.hidden)return;
+    if(!this.armed||this.ws?.readyState!==1||(typeof document!=='undefined'&&document.hidden))return;
     if(this.ws.bufferedAmount>4096){return;} // backoff silently instead of pausing
-    if(this.pending.size>60){this.pending.clear();} // clear stale acks without dropping frame
-    const s=settingsMgr.settings,snapshot=this.input.snapshot();
-    const mode=this.profile.mode;
+    while(this.pending.size>=64){const oldestKey=this.pending.keys().next().value;this.pending.delete(oldestKey);} // clear stale acks without dropping frame
+    const s=settingsMgr.settings,mode=this.profile.mode,snapshot=this.input.snapshot(performance.now(),mode);
     const hasClutch=['MTC','H'].includes(mode);
     const clutch=hasClutch?this.travel.clutch:0;
     let buttons=snapshot.buttons;
@@ -365,7 +511,7 @@ class ControllerApp{
     const TRANSMISSION_MASK=0x3FFn; // bits 0-9 (gear1-6, reverse, park, drive, neutral)
     if(mode==='AT'){
       // AT: no clutch; manual gears 1-6 (bits 0-5) are cleared, but AT gears (P, R, N, D = bits 6,7,8,9) are preserved!
-      buttons&=~BUTTONS.CLUTCH;
+      buttons&=~(BUTTONS.CLUTCH|BUTTONS.SHIFT_UP|BUTTONS.SHIFT_DOWN);
       extended&=~0x3Fn;
     }else if(mode==='MT'){
       // MT: shift up/down in primary buttons only, no clutch, no gear in extended
@@ -377,6 +523,7 @@ class ControllerApp{
     }else if(mode==='H'){
       // H-pattern: gear1-6 + reverse go via extended bits, clutch pedal active
       // Clear non-H transmission bits (park, drive, neutral = indices 7,8,9)
+      buttons&=~(BUTTONS.SHIFT_UP|BUTTONS.SHIFT_DOWN);
       extended&=~((1n<<7n)|(1n<<8n)|(1n<<9n));
     }
     const cal=settingsMgr.calibration||{centerOffsetDeg:0};
@@ -387,7 +534,8 @@ class ControllerApp{
       throttle:normalizePedal(this.travel.throttle,{lowerDeadzone:s.pedalDeadzone,upperSaturation:1-s.pedalDeadzone})};
     this.sequence=(this.sequence+1)&255;state.sequence=this.sequence;
     for(const frame of encodeSnapshot(state))this.ws.send(frame);
-    this.pending.set(this.sequence,neutral?{active:new Set()}:snapshot);
+    this.input.notifyTransmitted?.(snapshot,performance.now());
+    this.pending.set(this.sequence,neutral?{active:new Set(),sessionEpoch:this.sessionEpoch}:{...snapshot,sessionEpoch:this.sessionEpoch});
   }
   loop(now){
     requestAnimationFrame(t=>this.loop(t));
@@ -408,5 +556,8 @@ class ControllerApp{
     }
   }
 }
-installViewportLock();
-window.app=new ControllerApp();
+if(typeof window!=='undefined'&&typeof document!=='undefined'){
+  installViewportLock();
+  window.app=new ControllerApp();
+}
+export {ControllerApp};

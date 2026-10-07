@@ -38,16 +38,23 @@ export class PedalControl {
 
     const release = (e) => {
       if (e.pointerId !== this.pointerId) return;
-      this.pointerId = null;
-      try {
-        this.container.releasePointerCapture(e.pointerId);
-      } catch {}
       this.reset();
     };
 
     for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       this.container.addEventListener(event, release);
     }
+  }
+
+  setEnabled(val) {
+    this.enabled = Boolean(val);
+    if (!this.enabled && this.pointerId !== null) {
+      this.reset();
+    }
+  }
+
+  cancelDrag() {
+    this.reset();
   }
 
   updateFromPointer(e) {
@@ -66,9 +73,11 @@ export class PedalControl {
   reset() {
     const id = this.pointerId;
     this.pointerId = null;
-    if (id !== null && this.container.hasPointerCapture(id)) {
+    if (id !== null) {
       try {
-        this.container.releasePointerCapture(id);
+        if (this.container.hasPointerCapture?.(id)) {
+          this.container.releasePointerCapture(id);
+        }
       } catch {}
     }
     this.travel = 0;

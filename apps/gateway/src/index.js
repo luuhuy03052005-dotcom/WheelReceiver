@@ -17,9 +17,13 @@ export function createGatewayServer(options={}){
   const pipeClient=options.pipeClient||new PipeClient(options.pipePath);
   const runtime=options.runtime||new RuntimeManager({file:options.dataDir&&path.join(options.dataDir,'profiles.json'),detect:options.detect===true,discoverScript:options.discoverScript});
   let owner=null,armed=false,configured=false,profilePending=false,lastSeq=null,lastValid=0,requireNeutral=true,closed=false,neutralizedOnTimeout=false;
-  let pendingA=null,pendingB=null,appliedRevision=0,stagingRevision=0;
+  let pendingA=null,pendingB=null,appliedRevision=0;
+  let connectionEpoch=0,inFlightConfig=null,queuedConfig=null;
   const send=(ws,msg)=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));};
-  const status=()=>({type:'status',...runtime.status(),configured,profilePending,appliedRevision,armed,
+  const status=()=>({type:'status',...runtime.status(),
+    configured:configured&&!profilePending&&inFlightConfig===null&&queuedConfig===null&&appliedRevision===runtime.revision,
+    profilePending:profilePending||inFlightConfig!==null||queuedConfig!==null,
+    appliedRevision,armed,
     bridge:{connected:pipeClient.isConnected,ready:pipeClient.ready,...pipeClient.capabilities},
     input:pipeClient.lastFrame||null,
     connectionTransport: (()=>{const address=(owner?._socket||owner?.socket)?.localAddress?.replace(/^::ffff:/,'');
@@ -28,24 +32,77 @@ export function createGatewayServer(options={}){
   const broadcast=()=>send(owner,status());
   const clear=()=>{lastSeq=null;pendingA=null;pendingB=null;requireNeutral=true;neutralizedOnTimeout=false;};
   const pause=(reason='Đã tạm ngưng')=>{armed=false;clear();pipeClient.sendNeutral();send(owner,{type:'paused',reason});broadcast();};
-  const configure=()=>{
-    configured=false;profilePending=false;stagingRevision=runtime.revision;
-    pipeClient.sendFrames(configFrames(runtime.profile,runtime.targetPid));
+  const dispatchConfig=()=>{
+    if(!pipeClient.isConnected){
+      configured=false;
+      return;
+    }
+    if(inFlightConfig!==null){
+      queuedConfig={
+        epoch:connectionEpoch,
+        revision:runtime.revision,
+        profile:runtime.profile,
+        targetPid:runtime.targetPid
+      };
+      profilePending=true;
+      broadcast();
+      return;
+    }
+    configured=false;
+    profilePending=false;
+    inFlightConfig={
+      epoch:connectionEpoch,
+      revision:runtime.revision,
+      profile:runtime.profile,
+      targetPid:runtime.targetPid
+    };
+    pipeClient.sendFrames(configFrames(inFlightConfig.profile,inFlightConfig.targetPid));
+    broadcast();
   };
-  const onProfile=()=>{if(!armed)configure();else{profilePending=true;broadcast();}};
+  const onProfile=()=>{
+    if(armed)pause('Đổi cấu hình profile');
+    dispatchConfig();
+  };
   runtime.on('profile',onProfile);
   runtime.on('focus',focused=>{
-    if(!focused&&armed&&runtime.targetPid!==0)pipeClient.sendNeutral();
-    else if(focused&&armed){requireNeutral=true;}
+    if(!focused&&armed&&runtime.targetPid!==0){
+      pause('Game mất focus (Alt-Tab)');
+    }else if(focused&&armed){
+      requireNeutral=true;
+    }
     broadcast();
   });
   runtime.on('status',broadcast);
-  pipeClient.on('connected',configure);
+  pipeClient.on('connected',()=>{
+    connectionEpoch++;
+    inFlightConfig=null;queuedConfig=null;configured=false;
+    dispatchConfig();
+  });
   pipeClient.on('status',message=>{
-    if(message.type==='configured'){configured=true;appliedRevision=stagingRevision;}
+    if(message.type==='configured'){
+      if(inFlightConfig&&inFlightConfig.epoch===connectionEpoch){
+        appliedRevision=inFlightConfig.revision;
+        inFlightConfig=null;
+        if(queuedConfig){
+          const next=queuedConfig;
+          queuedConfig=null;
+          inFlightConfig=next;
+          configured=false;
+          profilePending=false;
+          pipeClient.sendFrames(configFrames(next.profile,next.targetPid));
+        }else{
+          configured=true;
+          profilePending=false;
+        }
+      }
+    }
     broadcast();
   });
-  pipeClient.on('disconnected',()=>{configured=false;pause('Mất kết nối bridge');});
+  pipeClient.on('disconnected',()=>{
+    connectionEpoch++;
+    inFlightConfig=null;queuedConfig=null;configured=false;
+    pause('Mất kết nối bridge');
+  });
   pairing.on('revoked',()=>{if(owner&&!pairing.validateToken(owner.deviceToken)){pause('Thiết bị đã bị thu hồi');owner.close(1008,'Revoked');}});
   pipeClient.connect();
   app.use(express.static(options.publicDir||path.resolve(here,'../../controller-web/public')));
@@ -98,7 +155,7 @@ export function createGatewayServer(options={}){
           requireNeutral=false;
         }
         if(profilePending&&neutral){
-          configure();
+          dispatchConfig();
         }
         if(runtime.targetPid!==0&&!runtime.focused){
           pipeClient.sendNeutral();
@@ -132,13 +189,30 @@ export function createGatewayServer(options={}){
         if(ws!==owner||!pairing.validateToken(ws.deviceToken))return;
         if(msg.type==='pause'){pause();return;}
         if(msg.type==='profile'){
-          runtime.choose(msg);configure();return;
+          runtime.choose(msg);return;
         }
-        if(msg.type==='apply-profile'){configure();return;}
+        if(msg.type==='apply-profile'){
+          if(armed)pause('Đang áp dụng profile');
+          dispatchConfig();return;
+        }
         if(msg.type==='resume'){
-          if(profilePending){configure();}
+          if(ws!==owner||!pairing.validateToken(ws.deviceToken)){
+            send(ws,{type:'resume_rejected',reason:'unauthorized',message:'Chưa xác thực thiết bị'});return;
+          }
+          if(!pipeClient.isConnected){
+            send(ws,{type:'resume_rejected',reason:'bridge_disconnected',message:'Bridge chưa kết nối'});return;
+          }
+          if(!pipeClient.ready){
+            send(ws,{type:'resume_rejected',reason:'bridge_not_ready',message:'Bridge chưa sẵn sàng'});return;
+          }
+          if(!configured||profilePending||inFlightConfig!==null||queuedConfig!==null||appliedRevision!==runtime.revision){
+            send(ws,{type:'resume_rejected',reason:'configuration_pending',message:'Cấu hình profile chưa hoàn tất'});return;
+          }
+          if(msg.revision!==undefined&&msg.revision!==appliedRevision){
+            send(ws,{type:'resume_rejected',reason:'revision_mismatch',message:'Phiên bản profile yêu cầu đã cũ hoặc không khớp'});return;
+          }
           clear();pipeClient.sendNeutral();armed=true;requireNeutral=true;lastValid=Date.now();
-          send(ws,{type:'resumed',revision:appliedRevision});broadcast();
+          send(ws,{type:'resumed',revision:appliedRevision});broadcast();return;
         }
       }catch(error){send(ws,{type:'error',message:error.message||'Thông điệp không hợp lệ'});}
     });
@@ -160,7 +234,7 @@ export function createGatewayServer(options={}){
   const dispose=()=>{if(closed)return;closed=true;clearInterval(timer);runtime.close();pipeClient.close();};
   server.on('close',dispose);
   const close=async()=>{pause('Receiver đang đóng');for(const ws of wss.clients)ws.terminate();dispose();await new Promise(r=>server.listening?server.close(r):r());};
-  const gateway={get hasActiveController(){return !!owner&&owner.readyState===WebSocket.OPEN;},status,pause,configure};
+  const gateway={get hasActiveController(){return !!owner&&owner.readyState===WebSocket.OPEN;},status,pause,configure:dispatchConfig};
   return {server,wss,pairing,pipeClient,gateway,runtime,close};
 }
 if(typeof import.meta.url==='string'&&process.argv[1]===fileURLToPath(import.meta.url)){

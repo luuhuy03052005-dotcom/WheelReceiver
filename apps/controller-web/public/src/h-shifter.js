@@ -54,19 +54,37 @@ export class HPatternShifter{
     });
     this.knob.addEventListener('pointerdown',event=>{
       if(window.app?.layoutEditor?.editing||!this.enabled||!window.app?.armed)return;
-      event.preventDefault();this.pointer=event.pointerId;this.stageRect=this.stage.getBoundingClientRect();this.knob.setPointerCapture(event.pointerId);this.knob.classList.add('dragging');
+      const cockpitMain=document.getElementById('cockpit-main');
+      if(cockpitMain&&(cockpitMain.classList.contains('hud-edit-mode')||cockpitMain.classList.contains('layout-editing')))return;
+      if(this.pointer!==null)return;
+      event.preventDefault();this.pointer=event.pointerId;this.previousGear=this.gear;this.stageRect=this.stage.getBoundingClientRect();
+      try{this.knob.setPointerCapture(event.pointerId);}catch{}
+      this.knob.classList.add('dragging');
     });
     this.knob.addEventListener('pointermove',event=>{
       if(event.pointerId!==this.pointer)return;event.preventDefault();
       const point=this.point(event.clientX,event.clientY);this.place(point.x,point.y,false);
       const slot=nearestHSlot(point.x,point.y,this.available);this.apply(slot?.id||null,true);
     });
-    const release=event=>{
-      if(event.pointerId!==this.pointer)return;event.preventDefault();this.pointer=null;this.stageRect=null;this.knob.classList.remove('dragging');
+    const onUp=event=>{
+      if(event.pointerId!==this.pointer)return;event.preventDefault();
+      const id=this.pointer;this.pointer=null;this.stageRect=null;this.knob.classList.remove('dragging');
+      if(id!==null&&this.knob.hasPointerCapture?.(id)){try{this.knob.releasePointerCapture(id);}catch{}}
       const point=this.point(event.clientX,event.clientY),slot=nearestHSlot(point.x,point.y,this.available);
       this.select(slot?.id||null);
     };
-    for(const type of ['pointerup','pointercancel','lostpointercapture'])this.knob.addEventListener(type,release);
+    const onCancel=event=>{
+      if(event.pointerId!==this.pointer)return;event.preventDefault();
+      const id=this.pointer;this.pointer=null;this.stageRect=null;this.knob.classList.remove('dragging');
+      if(id!==null&&this.knob.hasPointerCapture?.(id)){try{this.knob.releasePointerCapture(id);}catch{}}
+      this.select(this.previousGear!==undefined?this.previousGear:this.gear);
+    };
+    this.knob.addEventListener('pointerup',onUp);
+    this.knob.addEventListener('pointercancel',onCancel);
+    this.knob.addEventListener('lostpointercapture',event=>{
+      if(event.pointerId!==this.pointer)return;
+      onCancel(event);
+    });
   }
   point(clientX,clientY){
     const rect=this.stageRect||this.stage.getBoundingClientRect();
@@ -125,7 +143,29 @@ export class HPatternShifter{
     this.enabled=!!value;
     this.stage.classList.toggle('disabled',!this.enabled);
     if(this.togglesContainer)this.togglesContainer.hidden=!this.enabled;
+    if(!this.enabled&&this.pointer!==null){
+      this.cancelDrag();
+    }
   }
-  setAvailability(ids){this.available=new Set(ids);for(const button of this.buttons)button.disabled=!this.available.has(button.dataset.hGear);if(this.gear&&!this.available.has(this.gear))this.reset();}
-  reset(notify=true){this.select(null,notify);}
+  cancelDrag(){
+    const id=this.pointer;
+    this.pointer=null;
+    this.stageRect=null;
+    this.knob.classList.remove('dragging');
+    if(id!==null&&this.knob.hasPointerCapture?.(id)){
+      try{this.knob.releasePointerCapture(id);}catch{}
+    }
+    this.select(this.gear,false);
+  }
+  reset(notify=true){
+    const id=this.pointer;
+    this.pointer=null;
+    this.stageRect=null;
+    this.previousGear=null;
+    this.knob.classList.remove('dragging');
+    if(id!==null&&this.knob.hasPointerCapture?.(id)){
+      try{this.knob.releasePointerCapture(id);}catch{}
+    }
+    this.select(null,notify);
+  }
 }

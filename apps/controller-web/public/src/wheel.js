@@ -24,27 +24,33 @@ export class SteeringWheel {
     this.wheelCtx = this.wheelCanvas.getContext('2d');
 
     new ResizeObserver(() => {
+      if (this.isDragging) {
+        this.cancelDrag();
+      }
       this.initCanvas();
       this.draw(true);
     }).observe(canvas.parentElement);
 
     canvas.addEventListener('pointerdown', (e) => {
+      if (!this.enabled || !window.app?.armed) return;
       if (window.app?.layoutEditor?.editing) return;
+      const cockpitMain = document.getElementById('cockpit-main');
+      if (cockpitMain && (cockpitMain.classList.contains('hud-edit-mode') || cockpitMain.classList.contains('layout-editing'))) return;
       if (this.pointerId !== null) return;
       e.preventDefault();
       this.pointerId = e.pointerId;
-      try {
-        canvas.setPointerCapture(e.pointerId);
-      } catch {}
       this.isDragging = true;
       this.spring.stop();
       this.updateCenter();
       this.last = this.angle(e);
       this.rawAngle = this.currentAngle;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {}
     });
 
     canvas.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== this.pointerId) return;
+      if (e.pointerId !== this.pointerId || !this.isDragging) return;
       e.preventDefault();
       const next = this.angle(e);
       let delta = next - this.last;
@@ -62,10 +68,11 @@ export class SteeringWheel {
 
     const release = (e) => {
       if (e.pointerId !== this.pointerId) return;
+      const id = this.pointerId;
       this.pointerId = null;
       this.isDragging = false;
       try {
-        if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+        if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
       } catch {}
       this.spring.start(this.currentAngle);
     };
@@ -332,7 +339,27 @@ export class SteeringWheel {
     this.spring.durationMs = ms;
   }
 
-  setThrottle() {}
+  setEnabled(enabled) {
+    this.enabled = Boolean(enabled);
+    if (!this.enabled && (this.pointerId !== null || this.isDragging)) {
+      this.cancelDrag();
+    }
+  }
+
+  cancelDrag() {
+    const id = this.pointerId;
+    this.pointerId = null;
+    this.isDragging = false;
+    this.spring.stop();
+    this.currentAngle = 0;
+    this.rawAngle = 0;
+    if (id !== null) {
+      try {
+        if (this.canvas.hasPointerCapture?.(id)) this.canvas.releasePointerCapture(id);
+      } catch {}
+    }
+    this.draw(true);
+  }
 
   resetToCenter() {
     const id = this.pointerId;
@@ -341,9 +368,9 @@ export class SteeringWheel {
     this.spring.stop();
     this.currentAngle = 0;
     this.rawAngle = 0;
-    if (id !== null && this.canvas.hasPointerCapture(id)) {
+    if (id !== null) {
       try {
-        this.canvas.releasePointerCapture(id);
+        if (this.canvas.hasPointerCapture?.(id)) this.canvas.releasePointerCapture(id);
       } catch {}
     }
     this.draw(true);

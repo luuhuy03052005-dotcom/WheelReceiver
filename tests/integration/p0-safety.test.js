@@ -10,7 +10,10 @@ test('P0 Safety: Neutral Gate on Resume (BR-CON-04)', async () => {
   const { server, pairing, pipeClient } = instance;
   // Mock connected pipe client so sendFrames succeeds without external bridge process
   pipeClient.isConnected = true;
+  pipeClient.ready = true;
   pipeClient.socket = { writableLength: 0, write: () => true, end: () => {} };
+  pipeClient.emit('connected');
+  pipeClient.emit('status', { type: 'configured', connected: true });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
@@ -80,7 +83,10 @@ test('P0 Safety: Sticky Stop/Pause drops subsequent binary frames', async () => 
   const instance = createGatewayServer({ detect: false });
   const { server, pairing, pipeClient } = instance;
   pipeClient.isConnected = true;
+  pipeClient.ready = true;
   pipeClient.socket = { writableLength: 0, write: () => true, end: () => {} };
+  pipeClient.emit('connected');
+  pipeClient.emit('status', { type: 'configured', connected: true });
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
@@ -165,7 +171,10 @@ test('P1 Signal Resilience: Momentary lag >150ms neutralizes output without disc
   const { server, pairing, pipeClient } = instance;
   let neutralCount = 0;
   pipeClient.isConnected = true;
+  pipeClient.ready = true;
   pipeClient.socket = { writableLength: 0, write: () => true, end: () => {} };
+  pipeClient.emit('connected');
+  pipeClient.emit('status', { type: 'configured', connected: true });
   const origSendNeutral = pipeClient.sendNeutral.bind(pipeClient);
   pipeClient.sendNeutral = () => { neutralCount++; return origSendNeutral(); };
 

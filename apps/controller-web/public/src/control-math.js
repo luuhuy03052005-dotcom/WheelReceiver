@@ -1,1 +1,1 @@
-export * from '/packages/control-math/src/index.js';
+export * from '../../../../packages/control-math/src/index.js';

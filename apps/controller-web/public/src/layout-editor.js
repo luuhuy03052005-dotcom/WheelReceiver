@@ -195,6 +195,7 @@ export class LayoutEditor {
 
       el.addEventListener('pointerdown', event => {
         if (!this.editing) return;
+        if (this.drag !== null) return;
         event.preventDefault();
         event.stopPropagation();
 
@@ -206,20 +207,10 @@ export class LayoutEditor {
         this.selected = id;
         try { el.setPointerCapture(event.pointerId); } catch {}
         const startPoint = this.toPoint(event.clientX, event.clientY);
-        this.drag = {
-          type: 'core',
-          id,
-          pointer: event.pointerId,
-          widget: w,
-          startPoint,
-          origX: w.x,
-          origY: w.y
-        };
-        this.renderSelection();
-        this.updateAdjuster();
 
         const onMove = moveEvent => {
           if (!this.drag || this.drag.type !== 'core' || this.drag.id !== id) return;
+          if (moveEvent.pointerId !== this.drag.pointer) return;
           moveEvent.preventDefault();
           const point = this.toPoint(moveEvent.clientX, moveEvent.clientY);
           if (!point || !this.drag.startPoint) return;
@@ -230,12 +221,16 @@ export class LayoutEditor {
           this.applyWidgetStyle(id, w);
         };
 
-        const onUp = upEvent => {
+        const cleanup = () => {
           window.removeEventListener('pointermove', onMove);
           window.removeEventListener('pointerup', onUp);
-          window.removeEventListener('pointercancel', onUp);
+          window.removeEventListener('pointercancel', onCancel);
           try { if (el.hasPointerCapture(event.pointerId)) el.releasePointerCapture(event.pointerId); } catch {}
-          if (!this.drag || this.drag.id !== id) return;
+        };
+
+        const onUp = upEvent => {
+          if (!this.drag || upEvent.pointerId !== this.drag.pointer) return;
+          cleanup();
           this.drag = null;
           this.save();
           this.renderSelection();
@@ -243,9 +238,34 @@ export class LayoutEditor {
           this.onStatus?.(`Đã lưu vị trí ${id === 'hud-wheel' ? 'Vô-lăng' : id === 'hud-pedals' ? 'Bàn đạp' : 'Hộp số'}.`);
         };
 
+        const onCancel = cancelEvent => {
+          if (!this.drag || cancelEvent.pointerId !== this.drag.pointer) return;
+          const origX = this.drag.origX, origY = this.drag.origY;
+          cleanup();
+          w.x = origX;
+          w.y = origY;
+          this.applyWidgetStyle(id, w);
+          this.drag = null;
+          this.renderSelection();
+          this.updateAdjuster();
+        };
+
+        this.drag = {
+          type: 'core',
+          id,
+          pointer: event.pointerId,
+          widget: w,
+          startPoint,
+          origX: w.x,
+          origY: w.y,
+          cleanup
+        };
+        this.renderSelection();
+        this.updateAdjuster();
+
         window.addEventListener('pointermove', onMove, { passive: false });
         window.addEventListener('pointerup', onUp, { passive: false });
-        window.addEventListener('pointercancel', onUp, { passive: false });
+        window.addEventListener('pointercancel', onCancel, { passive: false });
       }, true);
     }
   }
@@ -344,6 +364,9 @@ export class LayoutEditor {
   }
 
   setEditing(value) {
+    if (this.editing && !value) {
+      this.cancelDrag();
+    }
     this.editing = !!value;
     this.stage.classList.toggle('layout-editing', this.editing);
     this.selected = null;
@@ -411,14 +434,16 @@ export class LayoutEditor {
   bindPaletteDrag(button, action) {
     button.addEventListener('pointerdown', event => {
       if (!this.editing) return;
+      if (this.drag !== null) return;
       event.preventDefault();
-      button.setPointerCapture(event.pointerId);
+      try { button.setPointerCapture(event.pointerId); } catch {}
       const ghost = button.cloneNode(true);
       ghost.className = 'layout-ghost';
       document.body.append(ghost);
       this.drag = {
         type: 'new',
         pointer: event.pointerId,
+        button,
         action,
         ghost,
         moved: false,
@@ -434,19 +459,31 @@ export class LayoutEditor {
       this.moveGhost(event.clientX, event.clientY);
     });
 
-    const finish = event => {
+    const onUp = event => {
       if (this.drag?.pointer !== event.pointerId || this.drag.type !== 'new') return;
       const drag = this.drag;
       this.drag = null;
-      drag.ghost.remove();
+      try { if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId); } catch {}
+      drag.ghost?.remove();
       const point = this.toPoint(event.clientX, event.clientY);
       if (!drag.moved) this.add(action.id, 50, 45);
       else if (point) this.add(action.id, point.x, point.y);
     };
 
-    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      button.addEventListener(name, finish);
-    }
+    const onCancel = event => {
+      if (this.drag?.pointer !== event.pointerId || this.drag.type !== 'new') return;
+      const drag = this.drag;
+      this.drag = null;
+      try { if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId); } catch {}
+      drag.ghost?.remove();
+    };
+
+    button.addEventListener('pointerup', onUp);
+    button.addEventListener('pointercancel', onCancel);
+    button.addEventListener('lostpointercapture', event => {
+      if (event.pointerId !== this.drag?.pointer) return;
+      onCancel(event);
+    });
   }
 
   moveGhost(x, y) {
@@ -715,24 +752,16 @@ export class LayoutEditor {
       'pointerdown',
       event => {
         if (!this.editing) return;
+        if (this.drag !== null) return;
         event.preventDefault();
         event.stopPropagation();
         this.selected = item.id;
         try { button.setPointerCapture(event.pointerId); } catch {}
         const startPoint = this.toPoint(event.clientX, event.clientY);
-        this.drag = {
-          type: 'existing',
-          pointer: event.pointerId,
-          item,
-          startPoint,
-          origX: item.x,
-          origY: item.y
-        };
-        this.renderSelection();
-        this.updateAdjuster();
 
         const onMove = moveEvent => {
           if (!this.drag || this.drag.type !== 'existing' || this.drag.item !== item) return;
+          if (moveEvent.pointerId !== this.drag.pointer) return;
           moveEvent.preventDefault();
           const point = this.toPoint(moveEvent.clientX, moveEvent.clientY);
           if (!point || !this.drag.startPoint) return;
@@ -744,12 +773,16 @@ export class LayoutEditor {
           button.style.top = item.y + '%';
         };
 
-        const onUp = upEvent => {
+        const cleanup = () => {
           window.removeEventListener('pointermove', onMove);
           window.removeEventListener('pointerup', onUp);
-          window.removeEventListener('pointercancel', onUp);
+          window.removeEventListener('pointercancel', onCancel);
           try { if (button.hasPointerCapture(event.pointerId)) button.releasePointerCapture(event.pointerId); } catch {}
-          if (!this.drag || this.drag.item !== item) return;
+        };
+
+        const onUp = upEvent => {
+          if (!this.drag || upEvent.pointerId !== this.drag.pointer) return;
+          cleanup();
           this.drag = null;
           this.save();
           this.renderSelection();
@@ -757,12 +790,69 @@ export class LayoutEditor {
           this.onStatus?.('Đã lưu vị trí nút.');
         };
 
+        const onCancel = cancelEvent => {
+          if (!this.drag || cancelEvent.pointerId !== this.drag.pointer) return;
+          const origX = this.drag.origX, origY = this.drag.origY;
+          cleanup();
+          item.x = origX;
+          item.y = origY;
+          button.style.left = item.x + '%';
+          button.style.top = item.y + '%';
+          this.drag = null;
+          this.renderSelection();
+          this.updateAdjuster();
+        };
+
+        this.drag = {
+          type: 'existing',
+          pointer: event.pointerId,
+          item,
+          button,
+          startPoint,
+          origX: item.x,
+          origY: item.y,
+          cleanup
+        };
+        this.renderSelection();
+        this.updateAdjuster();
+
         window.addEventListener('pointermove', onMove, { passive: false });
         window.addEventListener('pointerup', onUp, { passive: false });
-        window.addEventListener('pointercancel', onUp, { passive: false });
+        window.addEventListener('pointercancel', onCancel, { passive: false });
       },
       true
     );
+  }
+
+  cancelDrag() {
+    if (!this.drag) return;
+    const drag = this.drag;
+    this.drag = null;
+    if (drag.ghost) {
+      try { drag.ghost.remove(); } catch {}
+    }
+    if (typeof drag.cleanup === 'function') {
+      try { drag.cleanup(); } catch {}
+    }
+    if (drag.button && drag.pointer !== undefined) {
+      try {
+        if (drag.button.hasPointerCapture?.(drag.pointer)) {
+          drag.button.releasePointerCapture(drag.pointer);
+        }
+      } catch {}
+    }
+    if (drag.type === 'core' && drag.widget) {
+      drag.widget.x = drag.origX;
+      drag.widget.y = drag.origY;
+      this.applyWidgetStyle(drag.id, drag.widget);
+    } else if (drag.type === 'existing' && drag.item && drag.button) {
+      drag.item.x = drag.origX;
+      drag.item.y = drag.origY;
+      drag.button.style.left = drag.item.x + '%';
+      drag.button.style.top = drag.item.y + '%';
+    }
+    this.renderSelection();
+    this.updateAdjuster();
   }
 
   renderSelection() {
