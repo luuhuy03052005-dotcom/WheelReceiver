@@ -41,7 +41,7 @@ function handlers(){
   ipcMain.handle('get-runtime',()=>instance?.gateway.status());
   ipcMain.handle('set-profile',(_event,value)=>{
     if(instance.gateway.status().armed)throw new Error('Tạm ngưng điều khiển trước khi đổi profile.');
-    instance.runtime.choose(value);instance.gateway.configure();return instance.gateway.status();
+    instance.runtime.choose(value);return instance.gateway.status();
   });
   ipcMain.handle('pause',()=>instance?.gateway.pause('Tạm ngưng từ Receiver'));
   ipcMain.handle('apply-profile',()=>instance?.gateway.configure());

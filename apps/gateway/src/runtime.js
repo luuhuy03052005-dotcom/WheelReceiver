@@ -79,24 +79,43 @@ export class RuntimeManager extends EventEmitter{
     }
     this.emit('status');
   }
-  choose({selection,gameId,profile,executable}={}){
+  choose({selection,gameId,profile,executable,reset}={}){
     if(selection && !['auto','manual'].includes(selection))throw new Error('Chế độ profile không hợp lệ');
     if(gameId&&!GAMES.some(g=>g.id===gameId))throw new Error('Profile không hợp lệ');
     if(selection)this.settings.selection=selection;
     if(gameId)this.settings.manualGame=gameId;
     const id=gameId||this.profile.gameId;
-    if(executable){
-      if(typeof executable!=='string'||!/^[\w. -]+\.exe$/i.test(executable))throw new Error('Tên tiến trình phải kết thúc bằng .exe');
-      const exeLower=executable.toLowerCase().trim();
-      if(BLOCKED_SYSTEM_EXES.has(exeLower))throw new Error('Không thể gán tiến trình hệ thống làm game');
-      this.settings.custom[exeLower]=id;
+    if(reset){
+      delete this.settings.profiles[id];
+      for(const [k, v] of Object.entries(this.settings.custom)){
+        if(v === id) delete this.settings.custom[k];
+      }
     }
-    if(profile)this.settings.profiles[id]=createProfile(id,profile);
+    if(executable !== undefined){
+      let exeName=typeof executable==='string'?executable.trim().replace(/^["']|["']$/g,''):'';
+      if(exeName.includes('/')||exeName.includes('\\')){
+        exeName=path.basename(exeName);
+      }
+      if(exeName){
+        if(!/^[\w. -]+\.exe$/i.test(exeName))throw new Error('Tên tiến trình phải kết thúc bằng .exe');
+        const exeLower=exeName.toLowerCase();
+        if(BLOCKED_SYSTEM_EXES.has(exeLower))throw new Error('Không thể gán tiến trình hệ thống làm game');
+        for(const [k, v] of Object.entries(this.settings.custom)){
+          if(v === id) delete this.settings.custom[k];
+        }
+        this.settings.custom[exeLower]=id;
+      } else {
+        for(const [k, v] of Object.entries(this.settings.custom)){
+          if(v === id) delete this.settings.custom[k];
+        }
+      }
+    }
+    if(!reset && profile)this.settings.profiles[id]=createProfile(id,profile);
     this.profile=createProfile(id,this.settings.profiles[id]);
     const match=this.matches.find(m=>m.gameId===id&&m.foreground);this.targetPid=match?.pid||0;this.focused=!!match;
     this.revision++;this.persist();this.emit('profile');this.emit('status');
   }
-  status(){return {selection:this.settings.selection,profile:this.profile,revision:this.revision,targetPid:this.targetPid,
+  status(){return {selection:this.settings.selection,profile:this.profile,profiles:this.settings.profiles,custom:this.settings.custom,revision:this.revision,targetPid:this.targetPid,
     focused:this.focused,matches:this.matches,error:this.detectError,networks:networkChoices(undefined,this.adapters)};}
   close(){clearInterval(this.networkTimer);this.worker?.removeAllListeners('exit');this.worker?.kill();}
 }

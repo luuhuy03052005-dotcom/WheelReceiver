@@ -18,7 +18,11 @@ class SettingsManager{
   saveSettings(s){this.settings=validateSettings({...this.settings,...s});localStorage.setItem('lan_wheel_settings_v3',JSON.stringify(this.settings));}
   saveCalibration(c){this.calibration={centerOffsetDeg:finite(c.centerOffsetDeg,0,-540,540),isCalibrated:c.isCalibrated===true};localStorage.setItem('lan_wheel_calib_v3',JSON.stringify(this.calibration));}
   getPairingToken(host=location.host){try{return JSON.parse(localStorage.getItem('lan_wheel_tokens_v3')||'{}')[host]||null;}catch{return null;}}
-  setPairingToken(token,host=location.host){let data={};try{data=JSON.parse(localStorage.getItem('lan_wheel_tokens_v3')||'{}');}catch{} if(token)data[host]=token;else delete data[host];localStorage.setItem('lan_wheel_tokens_v3',JSON.stringify(data));}
+  getProfiles(){try{return JSON.parse(localStorage.getItem('lan_wheel_profiles_v1')||'{}');}catch{return {};}}
+  getProfile(gameId){return this.getProfiles()[gameId]||null;}
+  saveProfile(gameId,profile){if(!gameId||!profile)return;const profiles=this.getProfiles();profiles[gameId]=profile;try{localStorage.setItem('lan_wheel_profiles_v1',JSON.stringify(profiles));}catch(e){console.warn('[SettingsManager] Failed to save profiles:',e);}}
+  saveProfiles(allProfiles){if(!allProfiles||typeof allProfiles!=='object')return;const profiles=this.getProfiles();const merged={...profiles,...allProfiles};try{localStorage.setItem('lan_wheel_profiles_v1',JSON.stringify(merged));}catch(e){console.warn('[SettingsManager] Failed to save profiles:',e);}}
+  resetProfile(gameId){const profiles=this.getProfiles();delete profiles[gameId];try{localStorage.setItem('lan_wheel_profiles_v1',JSON.stringify(profiles));}catch{}}
   resetSettings(){this.saveSettings(DEFAULT_SETTINGS);}
   resetCalibration(){this.saveCalibration(DEFAULT_CALIB);}
   factoryReset(){for(const key of Object.keys(localStorage))if(key.startsWith('lan_wheel_'))localStorage.removeItem(key);this.settings={...DEFAULT_SETTINGS};this.calibration={...DEFAULT_CALIB};}

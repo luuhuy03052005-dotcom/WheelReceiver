@@ -176,10 +176,14 @@ class ControllerApp{
   }
   receiveStatus(msg){
     this.serverStatus=msg;this.capabilities=msg.bridge||{};this.revision=msg.appliedRevision;
+    if(msg.profiles)settingsMgr.saveProfiles(msg.profiles);
     const changed=this.profileRevision!==msg.revision||this.lastBackend!==JSON.stringify(this.capabilities);
     if(changed){
       this.reset();
-      this.profileRevision=msg.revision;this.lastBackend=JSON.stringify(this.capabilities);this.profile=createProfile(msg.profile.gameId,msg.profile);this.input.setMode(this.profile.mode);
+      this.profileRevision=msg.revision;this.lastBackend=JSON.stringify(this.capabilities);
+      this.profile=createProfile(msg.profile.gameId,msg.profile);
+      settingsMgr.saveProfile(this.profile.gameId,this.profile);
+      this.input.setMode(this.profile.mode);
       this.wheel.setRange(this.profile.range);this.layoutEditor.useProfile(this.profile.gameId);this.renderControls();this.fillProfileForm(msg);
     }
     $('profile-name').textContent=this.profile.name;
@@ -513,9 +517,38 @@ class ControllerApp{
     $('clutch-col').hidden=!['MTC','H'].includes(mode);
     this.updateSpecialButtonVisuals?.();
   }
+  loadProfileForGame(gameId){
+    const cached=settingsMgr.getProfile(gameId);
+    const serverProf=this.serverStatus?.profiles?.[gameId];
+    const base=cached||serverProf||createProfile(gameId);
+    const profile=createProfile(gameId,base);
+    this.profile=profile;
+    this.input.setMode(profile.mode);
+    this.wheel.setRange(profile.range);
+    this.layoutEditor.useProfile(profile.gameId);
+    this.renderControls();
+    $('game').value=gameId;
+    this.populateModes();
+    $('mode').value=profile.mode;
+    $('backend').value=profile.backend;
+    $('range').value=profile.range;
+    $('range-label').textContent=profile.range+'°';
+    const rangeLbl=$('wheel-range');if(rangeLbl)rangeLbl.textContent=profile.range+'°';
+    const customExe=Object.entries(this.serverStatus?.custom||{}).find(([exe,gid])=>gid===gameId)?.[0]||'';
+    $('executable').value=customExe;
+    this.updateBinding();
+  }
   fillProfileForm(status){
-    $('selection').value=status.selection;$('game').value=this.profile.gameId;this.populateModes();
-    $('mode').value=this.profile.mode;$('backend').value=this.profile.backend;$('range').value=this.profile.range;$('range-label').textContent=this.profile.range+'°';this.updateBinding();
+    $('selection').value=status.selection;
+    $('game').value=this.profile.gameId;
+    this.populateModes();
+    $('mode').value=this.profile.mode;
+    $('backend').value=this.profile.backend;
+    $('range').value=this.profile.range;
+    $('range-label').textContent=this.profile.range+'°';
+    const customExe=Object.entries(status.custom||{}).find(([exe,gid])=>gid===this.profile.gameId)?.[0]||'';
+    $('executable').value=customExe;
+    this.updateBinding();
   }
   populateModes(){const g=GAMES.find(g=>g.id===$('game').value)||GAMES[0];$('mode').replaceChildren();for(const mode of g.modes){const o=new Option(MODES[mode],mode);$('mode').add(o);}}
   keyName(code){
@@ -539,16 +572,44 @@ class ControllerApp{
     const isAtGear=(this.profile?.mode==='AT'&&Number(index)===6)||(Number(index)>=7&&Number(index)<=9);
     const defaultKey=((isGear&&this.profile.backend==='vjoy')||isAtGear)?0:(DEFAULT_KEYS[index]||0);
     const key=isExplicit?Number(this.profile.keys[index]):defaultKey;
-    $('binding-key').value=String(key);
+    const selectEl=$('binding-key');
+    if(selectEl&&!selectEl.querySelector(`option[value="${key}"]`)){
+      selectEl.add(new Option(this.keyName(key),String(key)));
+    }
+    selectEl.value=String(key);
   }
   saveProfile(){
-    if(this.armed){this.notify('Tạm ngưng trước khi đổi profile.');return;}
+    if(this.armed)this.pause();
     this.reset();
     const id=$('game').value;
-    const profile=createProfile(id,{...this.profile,mode:$('mode').value,backend:$('backend').value,range:Number($('range').value)});
-    this.profile=profile;this.input.setMode(profile.mode);
-    this.send({type:'profile',selection:$('selection').value,gameId:id,profile,executable:$('executable').value.trim()||undefined});
-    this.notify('Đang áp dụng profile ở trạng thái neutral…');
+    let exeRaw=($('executable').value||'').trim().replace(/^["']|["']$/g,'');
+    if(exeRaw.includes('/')||exeRaw.includes('\\')){
+      exeRaw=exeRaw.split(/[/\\]/).pop().trim();
+    }
+    if(exeRaw&&!exeRaw.toLowerCase().endsWith('.exe')){
+      exeRaw+='.exe';
+    }
+    $('executable').value=exeRaw;
+    const currentBase=(this.profile.gameId===id?this.profile:settingsMgr.getProfile(id))||createProfile(id);
+    const profile=createProfile(id,{
+      ...currentBase,
+      gameId:id,
+      mode:$('mode').value,
+      backend:$('backend').value,
+      range:Number($('range').value)
+    });
+    this.profile=profile;
+    this.input.setMode(profile.mode);
+    this.wheel.setRange(profile.range);
+    settingsMgr.saveProfile(id,profile);
+    this.send({
+      type:'profile',
+      selection:$('selection').value,
+      gameId:id,
+      profile,
+      executable:exeRaw
+    });
+    this.notify(`Đã lưu profile "${profile.name}"!`);
   }
   syncSettings(){
     const s=settingsMgr.settings;
@@ -563,9 +624,52 @@ class ControllerApp{
     $('binding-key').add(new Option('vJoy / không gán phím',0));
     for(const code of [13,27,32,186,188,190,191,219,221,222,...Array.from({length:10},(_,i)=>48+i),...Array.from({length:26},(_,i)=>65+i),...Array.from({length:12},(_,i)=>112+i)])$('binding-key').add(new Option(this.keyName(code),code));
     $('binding-action').onchange=()=>this.updateBinding();
-    $('game').onchange=()=>{this.populateModes();const p=createProfile($('game').value);$('backend').value=p.backend;$('range').value=p.range;$('range-label').textContent=p.range+'°';};
+    $('game').onchange=()=>this.loadProfileForGame($('game').value);
     $('apply-profile').onclick=()=>this.saveProfile();$('apply-pending').onclick=()=>{this.pause();this.send({type:'apply-profile'});};
-    $('save-binding').onclick=()=>{this.pause();this.profile.keys[$('binding-action').value]=Number($('binding-key').value);this.saveProfile();$('binding-status').textContent='Đã yêu cầu lưu binding; gán chức năng tương ứng trong game.';};
+    const resetProfBtn=$('reset-profile');
+    if(resetProfBtn){
+      resetProfBtn.onclick=()=>{
+        const id=$('game').value;
+        const gName=GAMES.find(g=>g.id===id)?.name||id;
+        if(!confirm(`Khôi phục cài đặt gốc cho profile ${gName}?`))return;
+        if(this.armed)this.pause();
+        settingsMgr.resetProfile(id);
+        const defProfile=createProfile(id);
+        this.profile=defProfile;
+        this.input.setMode(defProfile.mode);
+        this.wheel.setRange(defProfile.range);
+        this.layoutEditor.useProfile(defProfile.gameId);
+        this.renderControls();
+        $('mode').value=defProfile.mode;
+        $('backend').value=defProfile.backend;
+        $('range').value=defProfile.range;
+        $('range-label').textContent=defProfile.range+'°';
+        $('executable').value='';
+        this.updateBinding();
+        this.send({
+          type:'profile',
+          selection:$('selection').value,
+          gameId:id,
+          profile:defProfile,
+          executable:'',
+          reset:true
+        });
+        this.notify(`Đã khôi phục profile mặc định: ${gName}`);
+      };
+    }
+    $('save-binding').onclick=()=>{
+      if(this.armed)this.pause();
+      const actIndex=$('binding-action').value;
+      const keyVal=Number($('binding-key').value);
+      if(!this.profile.keys)this.profile.keys={};
+      this.profile.keys[actIndex]=keyVal;
+      this.saveProfile();
+      const actObj=ACTIONS.find(a=>String(a.index)===String(actIndex));
+      const actName=actObj?actObj.label:('Hành động #'+actIndex);
+      const keyName=keyVal===0?'vJoy':this.keyName(keyVal);
+      $('binding-status').textContent=`Đã lưu: ${actName} → ${keyName}`;
+      setTimeout(()=>{$('binding-status').textContent='';},4000);
+    };
     $('arm').onclick=()=>{if($('arm').disabled)return;this.isSettingsOpen=false;this.openPanel('drive-panel');this.reset();this.send({type:'resume',revision:this.serverStatus?.appliedRevision??this.revision});this.wake();};
     $('stop').onclick=()=>this.pause();$('setup-open').onclick=()=>this.openPanel('setup-panel');$('setup-close').onclick=()=>{this.isSettingsOpen=false;this.openPanel('drive-panel');};
     $('layout-edit').onclick=()=>{this.isSettingsOpen=false;this.openPanel('drive-panel');this.layoutEditor.setEditing(!this.layoutEditor.editing);};
@@ -633,7 +737,23 @@ class ControllerApp{
       const lbl=$('wheel-range');if(lbl)lbl.textContent=settingsMgr.settings.steeringRangeDeg+'°';
     };
     $('export-profile').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,profile:this.profile},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='wheel-'+this.profile.gameId+'.json';a.click();URL.revokeObjectURL(url);};
-    $('import-profile').onchange=async e=>{try{const file=e.target.files[0];if(!file||file.size>32768)throw new Error('Profile quá lớn');const data=JSON.parse(await file.text());if(data.version!==1||!GAMES.some(g=>g.id===data.profile?.gameId))throw new Error('Định dạng profile không hợp lệ');this.pause();this.send({type:'profile',selection:'manual',gameId:data.profile.gameId,profile:createProfile(data.profile.gameId,data.profile)});}catch(error){this.notify(error.message);}e.target.value='';};
+    $('import-profile').onchange=async e=>{
+      try{
+        const file=e.target.files[0];
+        if(!file||file.size>32768)throw new Error('Profile quá lớn');
+        const data=JSON.parse(await file.text());
+        if(data.version!==1||!GAMES.some(g=>g.id===data.profile?.gameId))throw new Error('Định dạng profile không hợp lệ');
+        if(this.armed)this.pause();
+        const impProf=createProfile(data.profile.gameId,data.profile);
+        settingsMgr.saveProfile(impProf.gameId,impProf);
+        this.send({type:'profile',selection:'manual',gameId:impProf.gameId,profile:impProf});
+        this.loadProfileForGame(impProf.gameId);
+        this.notify(`Đã nhập profile cho ${impProf.name}`);
+      }catch(error){
+        this.notify(error.message);
+      }
+      e.target.value='';
+    };
     const params=new URLSearchParams(location.hash.slice(1)),pin=params.get('pin');
     if(pin&&/^\d{6}$/.test(pin)){$('pair-pin').value=pin;$('receiver-host').value=location.host;$('pair-feedback').textContent='Đang ghép đôi tự động…';history.replaceState(null,'',location.pathname);$('connect-dialog').showModal();return pin;}
     return undefined;

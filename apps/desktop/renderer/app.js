@@ -237,9 +237,29 @@ function update(state){
 }
 function showError(e){$('message').textContent=e.message||String(e);}
 $('pause').onclick=()=>api.pause().catch(showError);
-$('apply').onclick=()=>api.setProfile({selection:$('selection').value,gameId:$('game').value,profile:{...(current?.runtime?.profile||{}),mode:$('mode').value,backend:$('backend').value}}).catch(showError);
+$('apply').onclick=()=>{
+  const gId=$('game').value;
+  const target=current?.runtime?.profiles?.[gId] || (current?.runtime?.profile?.gameId===gId ? current?.runtime?.profile : null);
+  api.setProfile({
+    selection:$('selection').value,
+    gameId:gId,
+    profile:{...(target||{}),mode:$('mode').value,backend:$('backend').value}
+  }).then(()=>{
+    $('message').textContent='Đã áp dụng profile!';
+    setTimeout(()=>{$('message').textContent='';},3000);
+  }).catch(showError);
+};
 $('pending').onclick=()=>api.applyProfile().catch(showError);
-$('game').onchange=()=>{$('backend').value=['beamng','ets2','ats','assetto'].includes($('game').value)?'vjoy':'xinput';};
+$('game').onchange=()=>{
+  const gId=$('game').value;
+  const p=current?.runtime?.profiles?.[gId] || (current?.runtime?.profile?.gameId===gId ? current?.runtime?.profile : null);
+  if(p){
+    $('mode').value=p.mode;
+    $('backend').value=p.backend;
+  } else {
+    $('backend').value=['beamng','ets2','ats','assetto'].includes(gId)?'vjoy':'xinput';
+  }
+};
 $('refresh').onclick=()=>api.refreshPin().then(update).catch(showError);
 $('refresh-network').onclick=()=>api.refreshNetworks().then(update).catch(showError);
 $('open-controller').onclick=()=>api.openController().catch(showError);
