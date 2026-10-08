@@ -10,10 +10,21 @@ namespace LanRacingWheel.Bridge.Adapters
         private IVJoyController? _controller;
         private bool _disposed;
         private long _axisMax = 32767;
+        private byte _lastGearMode;
 
         public bool IsConnected => _controller != null && !_controller.HasRelinquished && !_disposed;
         public ControllerState CurrentState { get; private set; } = ControllerState.Neutral;
         public int ButtonCount => (int)(_controller?.ButtonCount ?? 0);
+
+        public VJoyGamepadAdapter(IVJoyController? controller = null)
+        {
+            _controller = controller;
+            if (_controller != null)
+            {
+                _axisMax = _controller.AxisMaxValue ?? 32767L;
+                if (_axisMax <= 0) _axisMax = 32767;
+            }
+        }
 
         public void Initialize()
         {
@@ -29,7 +40,7 @@ namespace LanRacingWheel.Bridge.Adapters
 
                 // Acquire device ID 1
                 _controller = _manager.AcquireController(1);
-                
+
                 if (_controller == null)
                 {
                     throw new Exception("Failed to acquire vJoy device ID 1. Is it configured in Configure vJoy?");
@@ -37,7 +48,7 @@ namespace LanRacingWheel.Bridge.Adapters
 
                 if (_controller.ButtonCount < 70)
                 {
-                    Console.WriteLine($"[VJoyAdapter] WARNING: vJoy Device 1 has {_controller.ButtonCount}/70 buttons. Configure 70 or more buttons to expose all 64 semantic actions plus the six primary buttons.");
+                    Console.WriteLine($"[VJoyAdapter] WARNING: vJoy Device 1 has {_controller.ButtonCount}/70 buttons. Configure 70 or more buttons to expose all 64 semantic actions plus primary buttons.");
                 }
 
                 _axisMax = _controller.AxisMaxValue ?? 32767L;
@@ -58,17 +69,21 @@ namespace LanRacingWheel.Bridge.Adapters
         {
             if (_controller == null || _disposed || _controller.HasRelinquished) return;
 
+            // When transmission mode changes, release old buttons so held inputs do not morph
+            if (_lastGearMode != state.GearMode)
+            {
+                ReleaseAllButtons();
+                _lastGearMode = state.GearMode;
+            }
+
             CurrentState = state;
 
             // Map Steering to Axis X
-            // state.Steering is [-32768, 32767]. vJoy axis is usually [0, _axisMax], where center is _axisMax/2
             int steeringNorm = state.Steering + 32768; // 0 to 65535
             int vJoyX = (int)((long)steeringNorm * _axisMax / 65535L);
             if (_controller.HasAxisX) _controller.SetAxisX(vJoyX);
 
-            // Keep Y, Z, Rx centered at 0 if no pedals, else we map them below
             // Throttle (Y Axis), Brake (Z Axis), Clutch (Rx Axis)
-            // state.Throttle, Brake, Clutch are 0..255. We map to 0.._axisMax
             int vJoyY = (int)((long)state.Throttle * _axisMax / 255L);
             int vJoyZ = (int)((long)state.Brake * _axisMax / 255L);
             int vJoyRx = (int)((long)state.Clutch * _axisMax / 255L);
@@ -84,57 +99,72 @@ namespace LanRacingWheel.Bridge.Adapters
             bool drive = (buttons & 0x0008) != 0 || (state.ExtendedButtons & (1UL << 8)) != 0;
             bool handbrake = (buttons & 0x1000) != 0 || (state.ExtendedButtons & (1UL << 34)) != 0;
             bool camera = (buttons & 0x0200) != 0 || (state.ExtendedButtons & (1UL << 58)) != 0;
+            bool shiftUp = (buttons & 0x2000) != 0;
+            bool shiftDown = (buttons & 0x4000) != 0;
+            bool nitro = (buttons & 0x8000) != 0;
+            bool clutchBtn = (buttons & 0x0100) != 0;
 
             if (_controller.ButtonCount >= 16)
             {
-                for (int i = 0; i < 64; i++)
+                // Buttons 1-10: Transmission gears
+                for (int i = 0; i < 10; i++)
                 {
                     bool pressed = (state.ExtendedButtons & (1UL << i)) != 0;
                     if (i == 6) pressed = rev;
                     else if (i == 7) pressed = park;
                     else if (i == 8) pressed = drive;
                     else if (i == 9) pressed = neutral;
-                    else if (i == 34) pressed = handbrake;
-                    else if (i == 58) pressed = camera;
 
-                    UpdateButton((uint)(i < 10 ? i + 1 : i + 7), pressed);
+                    UpdateButton((uint)(i + 1), pressed);
                 }
 
-                // Action Buttons (11-16)
-                UpdateButton(11, handbrake); // Handbrake (A)
-                UpdateButton(12, (buttons & 0x2000) != 0); // Shift Up (B)
-                UpdateButton(13, (buttons & 0x4000) != 0); // Shift Down (X)
-                UpdateButton(14, (buttons & 0x8000) != 0); // Nitro (Y)
-                UpdateButton(15, camera); // Camera (RB)
-                UpdateButton(16, (buttons & 0x0100) != 0); // Clutch (LB)
+                // Buttons 11-16: Canonical primary buttons
+                UpdateButton(11, handbrake); // Canonical Button 11 for Handbrake / parkingBrake
+                UpdateButton(12, shiftUp);   // Shift Up
+                UpdateButton(13, shiftDown); // Shift Down
+                UpdateButton(14, nitro);     // Nitro
+                UpdateButton(15, camera);    // Canonical Button 15 for Camera / cameraPrimary
+                UpdateButton(16, clutchBtn); // Clutch
 
-                // DPad as vJoy buttons for AT gear selection (also mirrored to 67-70 if device has 70+ buttons)
-                if (_controller.ButtonCount >= 70)
+                // Buttons 17-70: Auxiliary actions (excluding index 34 and index 58)
+                for (int i = 10; i < 64; i++)
                 {
-                    UpdateButton(67, park); // DPad Up (P - Park)
-                    UpdateButton(68, rev); // DPad Down (R - Reverse)
-                    UpdateButton(69, neutral); // DPad Left (N - Neutral)
-                    UpdateButton(70, drive); // DPad Right (D - Drive)
+                    if (i == 34 || i == 58) continue; // Handled canonically on buttons 11 and 15
+                    uint buttonId = (uint)(i + 7);
+                    bool pressed = (state.ExtendedButtons & (1UL << i)) != 0;
+                    UpdateButton(buttonId, pressed);
                 }
             }
             else
             {
-                // Compact mode for standard 8-button vJoy devices
-                if (state.GearMode == 4)
+                // Compact mode for standard 8-button vJoy devices (no colliding OR between nitro and camera)
+                if (state.GearMode == 4) // Mode H
                 {
-                    for (int i = 0; i < 7; i++) UpdateButton((uint)(i + 1), (state.ExtendedButtons & (1UL << i)) != 0);
-                    UpdateButton(8, handbrake); // Handbrake
+                    for (int i = 0; i < 6; i++) UpdateButton((uint)(i + 1), (state.ExtendedButtons & (1UL << i)) != 0);
+                    UpdateButton(7, rev);
+                    UpdateButton(8, handbrake);
                 }
-                else
+                else if (state.GearMode == 1) // Mode AT
                 {
-                    UpdateButton(1, handbrake); // Handbrake (A)
-                    UpdateButton(2, (buttons & 0x2000) != 0); // Shift Up (B)
-                    UpdateButton(3, (buttons & 0x4000) != 0); // Shift Down (X)
-                    UpdateButton(4, (buttons & 0x8000) != 0 || camera); // Nitro / Camera
-                    UpdateButton(5, park); // Park (P) -> Button 5
-                    UpdateButton(6, rev); // Reverse (R) -> Button 6
-                    UpdateButton(7, neutral); // Neutral (N) -> Button 7
-                    UpdateButton(8, drive); // Drive (D) -> Button 8
+                    UpdateButton(1, handbrake);
+                    UpdateButton(2, camera);
+                    UpdateButton(3, nitro);
+                    UpdateButton(4, false); // Reserved
+                    UpdateButton(5, park);
+                    UpdateButton(6, rev);
+                    UpdateButton(7, neutral);
+                    UpdateButton(8, drive);
+                }
+                else // Mode MT / MTC
+                {
+                    UpdateButton(1, handbrake);
+                    UpdateButton(2, shiftUp);
+                    UpdateButton(3, shiftDown);
+                    UpdateButton(4, nitro);
+                    UpdateButton(5, camera);
+                    UpdateButton(6, state.GearMode == 3 ? clutchBtn : false);
+                    UpdateButton(7, false);
+                    UpdateButton(8, false);
                 }
             }
         }
@@ -150,9 +180,19 @@ namespace LanRacingWheel.Bridge.Adapters
                 _controller.ReleaseButton(buttonId);
         }
 
+        public void ReleaseAllButtons()
+        {
+            if (_controller == null) return;
+            for (uint b = 1; b <= _controller.ButtonCount; b++)
+            {
+                _controller.ReleaseButton(b);
+            }
+        }
+
         public void ResetToNeutral()
         {
             if (_controller == null || _disposed) return;
+            ReleaseAllButtons();
             UpdateState(ControllerState.Neutral);
         }
 

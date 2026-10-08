@@ -528,13 +528,15 @@ main {
 }
 
 .shift-buttons {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 4px;
   margin-top: auto;
 }
 
 .shift-buttons button {
+  flex: 1;
   min-height: 28px;
   padding: 1px;
   border-radius: 6px;
@@ -542,6 +544,23 @@ main {
   font-family: 'JetBrains Mono', monospace;
   font-size: 16px;
   font-weight: 700;
+}
+
+.sequential-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.sequential-badge img {
+  height: 26px;
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
 }
 
 .handbrake {
@@ -911,6 +930,38 @@ main {
   flex-shrink: 0;
 }
 
+.action-icon-img {
+  width: 26px;
+  height: 26px;
+  max-width: 60%;
+  max-height: 50%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+
+.layout-action.active .action-icon-img,
+.layout-action:active .action-icon-img {
+  transform: scale(0.92);
+  filter: drop-shadow(0 0 6px var(--accent));
+}
+
+.palette-icon-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
 .layout-action span {
   font-family: Outfit, sans-serif;
   font-size: 8px;
@@ -939,6 +990,131 @@ main {
   border-color: #00f59b !important;
   color: #041209 !important;
   transform: translate(-50%, -50%) scale(0.93) !important;
+}
+
+/* ========================================================
+   Cutout Action Buttons (Authentic PNG Shape Without Square Box)
+   ======================================================== */
+.action-button.cutout-button,
+.layout-action.cutout-button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  overflow: visible !important;
+  outline: none;
+}
+
+.action-button.cutout-button:active,
+.action-button.cutout-button.active,
+.layout-action.cutout-button:active,
+.layout-action.cutout-button.active {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: translate(-50%, -50%) scale(0.91) !important;
+}
+
+.action-button.cutout-button span,
+.action-button.cutout-button small,
+.layout-action.cutout-button span,
+.layout-action.cutout-button small {
+  display: none !important;
+}
+
+.action-button.cutout-button .action-icon-img,
+.layout-action.cutout-button .action-icon-img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.7));
+  transition: transform 0.08s ease, filter 0.18s ease, opacity 0.18s ease;
+  pointer-events: none;
+}
+
+.action-button.cutout-button:active .action-icon-img,
+.action-button.cutout-button.active .action-icon-img,
+.layout-action.cutout-button:active .action-icon-img,
+.layout-action.cutout-button.active .action-icon-img {
+  transform: scale(0.91) !important;
+}
+
+/* 1. Start/Stop Engine Push Button: Dynamic Illumination & Glow */
+.btn-engine-start.engine-off .action-icon-img,
+[data-action="starter"].engine-off .action-icon-img,
+[data-action="ignition"].engine-off .action-icon-img {
+  filter: drop-shadow(0 0 8px rgba(255, 60, 60, 0.65)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.8)) brightness(0.92);
+}
+
+.btn-engine-start.engine-on .action-icon-img,
+[data-action="starter"].engine-on .action-icon-img,
+[data-action="ignition"].engine-on .action-icon-img {
+  filter: drop-shadow(0 0 14px #00f59b) drop-shadow(0 0 28px rgba(0, 245, 155, 0.55)) brightness(1.22);
+  animation: engine-pulse-glow 2.5s infinite ease-in-out;
+}
+
+@keyframes engine-pulse-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 12px #00f59b) drop-shadow(0 0 24px rgba(0, 245, 155, 0.45)) brightness(1.18);
+  }
+  50% {
+    filter: drop-shadow(0 0 18px #00f59b) drop-shadow(0 0 34px rgba(0, 245, 155, 0.7)) brightness(1.3);
+  }
+}
+
+.btn-engine-start:active .action-icon-img,
+.btn-engine-start.active .action-icon-img,
+[data-action="starter"]:active .action-icon-img,
+[data-action="starter"].active .action-icon-img {
+  filter: drop-shadow(0 0 24px #00f59b) drop-shadow(0 0 45px rgba(0, 245, 155, 0.9)) brightness(1.45) !important;
+}
+
+/* 2. Turn Signals Blinking Animation */
+@keyframes turn-signal-flash {
+  0%, 100% {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6)) brightness(0.65);
+    opacity: 0.55;
+    transform: scale(0.97);
+  }
+  50% {
+    filter: drop-shadow(0 0 18px #00f59b) drop-shadow(0 0 35px rgba(0, 245, 155, 0.9)) brightness(1.5);
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.blinking-indicator .action-icon-img {
+  animation: turn-signal-flash 0.62s infinite ease-in-out !important;
+}
+
+/* 3. Headlights Illumination */
+.btn-light-low.light-on .action-icon-img,
+[data-action="lowBeam"].light-on .action-icon-img {
+  filter: drop-shadow(0 0 16px #00f59b) drop-shadow(0 0 28px rgba(0, 245, 155, 0.7)) brightness(1.38);
+}
+
+.btn-light-high.light-on .action-icon-img,
+[data-action="highBeam"].light-on .action-icon-img {
+  filter: drop-shadow(0 0 18px #00c8ff) drop-shadow(0 0 34px rgba(0, 200, 255, 0.85)) brightness(1.45);
+}
+
+/* 4. Horn Blast Illumination */
+.btn-horn:active .action-icon-img,
+.btn-horn.active .action-icon-img,
+[data-action="horn"]:active .action-icon-img,
+[data-action="horn"].active .action-icon-img {
+  filter: drop-shadow(0 0 18px #ffaa00) drop-shadow(0 0 35px rgba(255, 170, 0, 0.8)) brightness(1.4) !important;
+}
+
+/* Layout Editor Selected Outline for Cutout Buttons */
+.layout-editing .layout-action.cutout-button.layout-selected {
+  outline: 2.5px dashed var(--accent) !important;
+  outline-offset: 4px !important;
+  border-radius: 50% !important;
+  box-shadow: 0 0 18px var(--accent-glow) !important;
 }
 
 .layout-action:active span,

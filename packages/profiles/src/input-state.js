@@ -77,6 +77,12 @@ export class InputState {
       now = sourceOrNow;
     }
 
+    // Direct gear mutual exclusivity
+    const directGears = ['gear1', 'gear2', 'gear3', 'gear4', 'gear5', 'gear6', 'reverse', 'park', 'drive', 'neutral'];
+    if (directGears.includes(id)) {
+      this.setGear(id);
+    }
+
     // Multi-source hold tracking
     let sources = this.heldSources.get(id);
     if (!sources) {
@@ -101,6 +107,31 @@ export class InputState {
         this._enqueuePulse(id, now);
       }
     }
+  }
+
+  /**
+   * Set the active direct gear, enforcing mutual exclusivity.
+   */
+  setGear(gearId) {
+    const directGears = ['gear1', 'gear2', 'gear3', 'gear4', 'gear5', 'gear6', 'reverse', 'park', 'drive', 'neutral'];
+    for (const g of directGears) {
+      if (g !== gearId) {
+        this.heldSources.delete(g);
+        this.held.delete(g);
+      }
+    }
+    this.gear = gearId;
+    if (gearId) {
+      this.held.add(gearId);
+    }
+  }
+
+  /**
+   * Emit a discrete pulse: press then immediately release source.
+   */
+  pulse(id, sourceId = 'default', now = performance.now()) {
+    this.press(id, sourceId, now);
+    this.release(id, sourceId, now);
   }
 
   /**
@@ -181,6 +212,7 @@ export class InputState {
       requestedAt: now,
       durationMs: 60,
       gapMs: 50,
+      gapStartTime: null,
       gapUntil: null,
       gapSampled: false,
       gapTransmitted: false,
@@ -230,14 +262,20 @@ export class InputState {
 
       if (current.state === 'GAP') {
         const gapObserved = this.requireTransmittedGap ? current.gapTransmitted : (current.gapTransmitted || current.gapSampled);
-        if (now >= current.gapUntil && gapObserved) {
+        if (current.gapUntil !== null && now >= current.gapUntil && gapObserved) {
           this.currentPulse.delete(id);
           const queue = this.pulseQueues.get(id);
           if (queue && queue.length > 0) {
-            const next = queue.shift();
-            next.requestedAt = now;
-            next.state = 'ACTIVE';
-            this.currentPulse.set(id, next);
+            // Prune expired pulses (>1000ms old)
+            while (queue.length > 0 && (now - queue[0].requestedAt > 1000)) {
+              queue.shift();
+            }
+            if (queue.length > 0) {
+              const next = queue.shift();
+              next.requestedAt = now;
+              next.state = 'ACTIVE';
+              this.currentPulse.set(id, next);
+            }
           }
         }
       }
@@ -379,6 +417,21 @@ export class InputState {
         this.sent.add(id);
         const pulse = this.currentPulse.get(id);
         if (pulse) pulse.acknowledged = true;
+      }
+    }
+
+    // If acknowledged snapshot is a release frame (pulse action is not active in it)
+    for (const [id, pulse] of this.currentPulse) {
+      if (pulse.state === 'GAP') {
+        const wasInSnapshot = snapshot.pulseIds ? snapshot.pulseIds.includes(pulse.id) : (snapshot.active && snapshot.active.has(id));
+        if (!wasInSnapshot) {
+          pulse.gapTransmitted = true;
+          if (pulse.gapStartTime === null) {
+            const now = performance.now();
+            pulse.gapStartTime = now;
+            pulse.gapUntil = now + pulse.gapMs;
+          }
+        }
       }
     }
   }

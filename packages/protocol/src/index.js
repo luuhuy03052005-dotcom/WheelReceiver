@@ -69,8 +69,11 @@ export function configFrames(profile,foregroundPid=0) {
   for(let index=0;index<64;index++){
     const b=new Uint8Array(8);b[0]=BINDING;b[1]=index;
     const isGear=index<10;
-    const defaultKey=(isGear&&profile.backend==='vjoy')?0:(defaults[index]||0);
-    b[2]=profile.keys?.[index]||defaultKey;
+    const isAtGear=(profile?.mode==='AT'&&index===6)||(index>=7&&index<=9);
+    const defaultKey=((isGear&&profile.backend==='vjoy')||isAtGear)?0:(defaults[index]||0);
+    const isExplicit=profile.keys&&(index in profile.keys||String(index) in profile.keys);
+    const key=isExplicit?profile.keys[index]:defaultKey;
+    b[2]=(typeof key==='number'&&key>=0&&key<=255)?key:0;
     frames.push(b);
   }
   return frames;

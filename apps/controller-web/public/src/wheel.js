@@ -1,4 +1,5 @@
 import {AutoCenterSpring} from './control-math.js';
+import {assetManager} from './assets.js';
 
 export class SteeringWheel {
   constructor(canvas, options = {}) {
@@ -16,6 +17,23 @@ export class SteeringWheel {
     this.dpr = 1;
     this.centerX = 0;
     this.centerY = 0;
+
+    // Preload wheel image once at initialization (Prompt 11 / Golden Rule 1)
+    // Never instantiate new Image() inside render() or requestAnimationFrame
+    this.wheelImage = options.wheelImage || assetManager.getImage('wheel');
+    this.imageLoaded = Boolean(this.wheelImage);
+    if (!this.wheelImage && typeof Image !== 'undefined') {
+      const img = new Image();
+      img.onload = () => {
+        this.wheelImage = img;
+        this.imageLoaded = true;
+        this.draw(true);
+      };
+      img.onerror = () => {
+        this.imageLoaded = false;
+      };
+      img.src = options.wheelImageSrc || 'images/Wheel.png';
+    }
 
     // Pre-allocated offscreen cache canvases
     this.bgCanvas = document.createElement('canvas');
@@ -393,11 +411,24 @@ export class SteeringWheel {
     // 1. Draw static background
     c.drawImage(this.bgCanvas, 0, 0, s, s);
 
-    // 2. Draw rotating wheel
+    // 2. Draw rotating wheel (Prompt 11 / Golden Rule 4: Canvas ctx.drawImage with translate & rotate)
     c.save();
     c.translate(s / 2, s / 2);
     c.rotate(this.currentAngle * Math.PI / 180);
-    c.drawImage(this.wheelCanvas, -s / 2, -s / 2, s, s);
+    if (this.imageLoaded && this.wheelImage) {
+      const nw = this.wheelImage.naturalWidth || 457;
+      const nh = this.wheelImage.naturalHeight || 465;
+      // Exact calibrated center of the small circle and letter 'W' in Wheel.png (x: 228.0, y: 262.0)
+      const pivotX = (228.0 / 457) * nw;
+      const pivotY = (262.0 / 465) * nh;
+      const maxR = (250.0 / 457) * nw;
+      const scale = (s * 0.46) / maxR;
+      const drawW = nw * scale;
+      const drawH = nh * scale;
+      c.drawImage(this.wheelImage, -pivotX * scale, -pivotY * scale, drawW, drawH);
+    } else {
+      c.drawImage(this.wheelCanvas, -s / 2, -s / 2, s, s);
+    }
     c.restore();
   }
 }

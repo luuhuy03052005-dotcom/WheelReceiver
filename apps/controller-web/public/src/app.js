@@ -6,19 +6,22 @@ import {PedalControl} from './pedals.js';
 import {LayoutEditor} from './layout-editor.js';
 import {HPatternShifter,H_SLOTS} from './h-shifter.js';
 import {installViewportLock} from './viewport-lock.js';
-import {ACTIONS,GAMES,GROUPS,MODES,DEFAULT_KEYS,createProfile,supportsAction} from '../../../../packages/profiles/src/index.js';
+import {assetManager,ACTION_IMAGE_MAP} from './assets.js';
+import {ACTIONS,GAMES,GROUPS,MODES,DEFAULT_KEYS,createProfile,supportsAction,resolveActionRoute} from '../../../../packages/profiles/src/index.js';
 import {InputState} from '../../../../packages/profiles/src/input-state.js';
 const $=id=>document.getElementById(id);
 const icon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5c5 0 7 3 7 7s-2 7-7 7V5ZM3 7h6M2 12h7M3 17h6"/></svg>';
 class ControllerApp{
   constructor(){
-    this.ws=null;this.armed=false;this.authenticated=false;this.sequence=0;this.pending=new Map();this.input=new InputState();this.sessionEpoch=1;this.input.requireTransmittedGap=true;
+    assetManager.preloadAll();
+    this.ws=null;this.armed=false;this.authenticated=false;this.sequence=0;this.sequenceCycle=0;this.consecutiveHighBuffer=0;this.pending=new Map();this.input=new InputState();this.sessionEpoch=1;this.input.requireTransmittedGap=true;
+    this.engineRunning=false;this.activeIndicators={left:false,right:false,hazards:false};this.activeLights={low:false,high:false};
     this.profile=createProfile();this.input.setMode(this.profile.mode);this.capabilities={};this.revision=0;this.stats={count:0,start:performance.now(),hz:0};
     this.angleOutput=$('wheel-angle');this.diagnosticsOutput=$('diagnostics');this.lastAngle=null;
     this.wheel=new SteeringWheel($('wheel-canvas'),{steeringRangeDeg:settingsMgr.settings.steeringRangeDeg,autoCenterMs:settingsMgr.settings.autoCenterMs});
     this.pedals={};this.travel={throttle:0,brake:0,clutch:0};
     for(const key of ['throttle','brake','clutch'])this.pedals[key]=new PedalControl($(key+'-col'),$(key+'-fill'),$(key+'-val'),v=>this.travel[key]=v);
-    this.hShifter=new HPatternShifter($('h-shifter'),gear=>{if(!this.armed)return;this.input.gear=gear;$('gear-display').textContent=this.hShifter.getGearLabel(gear);});
+    this.hShifter=new HPatternShifter($('h-shifter'),gear=>{if(!this.armed)return;this.input.setGear(gear);$('gear-display').textContent=this.hShifter.getGearLabel(gear);},{input:this.input});
     this.layoutEditor=new LayoutEditor({
       stage:$('cockpit-main'),layer:$('quick-controls'),palette:$('layout-palette'),
       onCreate:id=>{
@@ -40,7 +43,19 @@ class ControllerApp{
           const btn = document.createElement('button');
           btn.className = 'action-button';
           btn.dataset.primary = id;
-          btn.innerHTML = icon + `<span>${action.label}</span>`;
+          const imgSrc = ACTION_IMAGE_MAP[id];
+          if (imgSrc) {
+            btn.classList.add('cutout-button');
+            if (id === 'starter' || id === 'ignition') btn.classList.add('btn-engine-start');
+            else if (id === 'horn') btn.classList.add('btn-horn');
+            else if (id === 'indicatorLeft') btn.classList.add('btn-indicator-left');
+            else if (id === 'indicatorRight') btn.classList.add('btn-indicator-right');
+            else if (id === 'lowBeam') btn.classList.add('btn-light-low');
+            else if (id === 'highBeam') btn.classList.add('btn-light-high');
+            btn.innerHTML = `<img src="${imgSrc}" class="action-icon-img" alt="" aria-hidden="true" draggable="false" />`;
+          } else {
+            btn.innerHTML = icon + `<span>${action.label}</span>`;
+          }
           this.bindButton(btn, id);
           return btn;
         }
@@ -125,7 +140,15 @@ class ControllerApp{
       this.notify(msg.reason||'Đã tạm ngưng điều khiển');
     }
     else if(msg.type==='resumed'){
-      this.revision=msg.revision;this.setArmed(true);this.sendStateFrame(true);
+      this.revision=msg.revision;
+      if(msg.sessionEpoch!==undefined){
+        this.sessionEpoch=msg.sessionEpoch;
+        this.input.sessionEpoch=this.sessionEpoch;
+      }
+      this.sequenceCycle=0;
+      this.pending.clear();
+      this.consecutiveHighBuffer=0;
+      this.setArmed(true);this.sendStateFrame(true);
       $('connection-label').textContent='Đang điều khiển';$('connection-dot').classList.add('connected');
       this.notify('Đang điều khiển · sẵn sàng.');
     }
@@ -136,7 +159,16 @@ class ControllerApp{
     }
     else if(msg.type==='ack'){
       const snapshot=this.pending.get(msg.sequence);
-      if(snapshot&&snapshot.sessionEpoch===this.sessionEpoch&&msg.revision===this.revision){this.input.acknowledge(snapshot);this.pending.delete(msg.sequence);this.stats.count++;}
+      if(snapshot){
+        const epochMatch=msg.sessionEpoch!==undefined?(msg.sessionEpoch===this.sessionEpoch&&snapshot.sessionEpoch===this.sessionEpoch):(snapshot.sessionEpoch===this.sessionEpoch);
+        const cycleMatch=msg.sequenceCycle!==undefined?(snapshot.sequenceCycle===undefined||snapshot.sequenceCycle===msg.sequenceCycle):true;
+        const revisionMatch=msg.revision===undefined||msg.revision===this.revision;
+        if(epochMatch&&cycleMatch&&revisionMatch){
+          this.input.acknowledge(snapshot);
+          this.pending.delete(msg.sequence);
+          this.stats.count++;
+        }
+      }
     }else if(msg.type==='require_neutral'){
       this.reset();
       this.notify('Đưa vô-lăng và bàn đạp về tâm để mở khóa điều khiển');
@@ -168,11 +200,19 @@ class ControllerApp{
     $('transport').textContent=transport?transport:'Chỉ ghi nhận adapter khả dụng; chưa xác minh đường truyền USB cho phiên này.';
   }
   setArmed(value){
-    this.armed=Boolean(value);if(!this.armed)this.reset();
+    this.armed=Boolean(value);
+    this.engineRunning=this.armed;
+    if(!this.armed){
+      this.activeIndicators={left:false,right:false,hazards:false};
+      this.activeLights={low:false,high:false};
+      this.reset();
+    }
     this.wheel.setEnabled?.(this.armed);for(const p of Object.values(this.pedals))p.setEnabled?.(this.armed);
     this.hShifter.setEnabled(this.armed&&this.profile.mode==='H');
+    this.hShifter.updateTruckToggles(this.profile,this.capabilities);
     $('stop').disabled=!this.armed;
     this.updateArmButton();
+    this.updateSpecialButtonVisuals?.();
     if(this.armed){
       this.layoutEditor.setEditing(false);
       if(!this.isSettingsOpen)$('setup-panel').hidden=true;
@@ -181,6 +221,8 @@ class ControllerApp{
   reset(){
     this.input.reset();
     this.sessionEpoch=this.input.sessionEpoch;
+    this.sequenceCycle=0;
+    this.consecutiveHighBuffer=0;
     this.pending.clear();
     this.travel={throttle:0,brake:0,clutch:0};
     this.wheel.resetToCenter();
@@ -190,6 +232,7 @@ class ControllerApp{
     document.querySelectorAll('.action-button').forEach(el=>{
       el._resetPointer?.();
     });
+    this.updateSpecialButtonVisuals?.();
     $('gear-display').textContent=this.profile.mode==='H'?'N':'—';
     this.updateArmButton();
   }
@@ -254,6 +297,7 @@ class ControllerApp{
     const downTouch=()=>{
       if(!this.armed||this.layoutEditor?.editing||button.disabled)return;
       this.input.press(id,touchSourceId);
+      this.handleActionEffect?.(id);
       updateVisual();
     };
     const upTouch=()=>{
@@ -266,6 +310,7 @@ class ControllerApp{
       button._heldKeys.add(code);
       const kbdSourceId='kbd:'+button._btnSourceId+':'+code;
       this.input.press(id,kbdSourceId);
+      this.handleActionEffect?.(id);
       updateVisual();
     };
     const upKey=(code)=>{
@@ -338,14 +383,82 @@ class ControllerApp{
   actionButton(action){
     const button=document.createElement('button');button.className='action-button';button.dataset.action=action.id;
     const supported=supportsAction(action,this.profile,this.capabilities);
-    button.innerHTML=icon;
+    const imgSrc=ACTION_IMAGE_MAP[action.id];
+    if(imgSrc){
+      button.classList.add('cutout-button');
+      if(action.id==='starter'||action.id==='ignition') button.classList.add('btn-engine-start');
+      else if(action.id==='horn') button.classList.add('btn-horn');
+      else if(action.id==='indicatorLeft') button.classList.add('btn-indicator-left');
+      else if(action.id==='indicatorRight') button.classList.add('btn-indicator-right');
+      else if(action.id==='lowBeam') button.classList.add('btn-light-low');
+      else if(action.id==='highBeam') button.classList.add('btn-light-high');
+      button.innerHTML=`<img src="${imgSrc}" class="action-icon-img" alt="" aria-hidden="true" draggable="false" />`;
+    }else{
+      button.innerHTML=icon;
+    }
     const label=document.createElement('span');label.textContent=action.label;button.append(label);
     const hint=document.createElement('small');
-    const isGear=action.index<10;
-    const defaultKey=(isGear&&this.profile.backend==='vjoy')?0:(DEFAULT_KEYS[action.index]||0);
-    const key=this.profile.keys[action.index]||defaultKey;
-    hint.textContent=supported?(key?'Phím '+this.keyName(key):'vJoy #'+action.vjoy)+(action.kind==='hold'?' · giữ':' · nhấn'):'Chưa có ánh xạ / đầu ra';
+    const route=resolveActionRoute(action,this.profile,this.capabilities);
+    let hintText='Chưa có ánh xạ / đầu ra';
+    if(supported){
+      const routeType=route.type==='keyboard'?'Phím '+this.keyName(route.key):route.type==='vjoy'?'vJoy #'+route.button:'XInput';
+      hintText=routeType+(action.kind==='hold'?' · giữ':' · nhấn');
+    }
+    hint.textContent=hintText;
     button.append(hint);button.disabled=!supported;button.title=hint.textContent;this.bindButton(button,action.id);return button;
+  }
+  handleActionEffect(id){
+    if(id==='starter'||id==='ignition'){
+      this.engineRunning=!this.engineRunning;
+      this.updateSpecialButtonVisuals();
+    }else if(id==='indicatorLeft'){
+      this.activeIndicators.left=!this.activeIndicators.left;
+      if(this.activeIndicators.left)this.activeIndicators.right=false;
+      this.updateSpecialButtonVisuals();
+    }else if(id==='indicatorRight'){
+      this.activeIndicators.right=!this.activeIndicators.right;
+      if(this.activeIndicators.right)this.activeIndicators.left=false;
+      this.updateSpecialButtonVisuals();
+    }else if(id==='hazards'){
+      this.activeIndicators.hazards=!this.activeIndicators.hazards;
+      this.updateSpecialButtonVisuals();
+    }else if(id==='lowBeam'){
+      this.activeLights.low=!this.activeLights.low;
+      this.updateSpecialButtonVisuals();
+    }else if(id==='highBeam'){
+      this.activeLights.high=!this.activeLights.high;
+      this.updateSpecialButtonVisuals();
+    }
+  }
+  updateSpecialButtonVisuals(){
+    const isEngineOn=Boolean(this.armed&&this.engineRunning);
+    const starterButtons=document.querySelectorAll('.btn-engine-start,[data-action="starter"],[data-action="ignition"],[data-primary="starter"],[data-primary="ignition"]');
+    for(const btn of starterButtons){
+      btn.classList.toggle('engine-on',isEngineOn);
+      btn.classList.toggle('engine-off',!isEngineOn);
+    }
+    const isLeftBlinking=Boolean(this.activeIndicators.hazards||this.activeIndicators.left);
+    const leftButtons=document.querySelectorAll('.btn-indicator-left,[data-action="indicatorLeft"],[data-primary="indicatorLeft"]');
+    for(const btn of leftButtons){
+      btn.classList.toggle('blinking-indicator',isLeftBlinking);
+    }
+    const isRightBlinking=Boolean(this.activeIndicators.hazards||this.activeIndicators.right);
+    const rightButtons=document.querySelectorAll('.btn-indicator-right,[data-action="indicatorRight"],[data-primary="indicatorRight"]');
+    for(const btn of rightButtons){
+      btn.classList.toggle('blinking-indicator',isRightBlinking);
+    }
+    const hazardsButtons=document.querySelectorAll('[data-action="hazards"],[data-primary="hazards"]');
+    for(const btn of hazardsButtons){
+      btn.classList.toggle('blinking-indicator',Boolean(this.activeIndicators.hazards));
+    }
+    const lowButtons=document.querySelectorAll('.btn-light-low,[data-action="lowBeam"],[data-primary="lowBeam"]');
+    for(const btn of lowButtons){
+      btn.classList.toggle('light-on',Boolean(this.activeLights.low));
+    }
+    const highButtons=document.querySelectorAll('.btn-light-high,[data-action="highBeam"],[data-primary="highBeam"]');
+    for(const btn of highButtons){
+      btn.classList.toggle('light-on',Boolean(this.activeLights.high));
+    }
   }
   renderControls(){
     const availableGroups=Object.fromEntries(Object.entries(GROUPS).filter(([group])=>this.profile.groups.includes(group)));
@@ -354,13 +467,34 @@ class ControllerApp{
     $('gear-buttons').replaceChildren();
     const gears=this.profile.mode==='AT'?['park','reverse','neutral','drive']:[];
     for(const id of gears){
-      const a=ACTIONS.find(a=>a.id===id),b=document.createElement('button');b.textContent=a.label.replace(' · ',' ').replace('Số ','');b.disabled=!supportsAction(a,this.profile,this.capabilities);
-      b.onclick=()=>{
-        if(!this.armed)return;
-        this.input.gear=id;
-        $('gear-display').textContent=id.startsWith('gear')?id.slice(4):id[0].toUpperCase();
+      const a=ACTIONS.find(a=>a.id===id),b=document.createElement('button');
+      b.type='button';
+      b.dataset.action=id;
+      b.textContent=a.label.replace(' · ',' ').replace('Số ','');
+      b.disabled=!supportsAction(a,this.profile,this.capabilities);
+      if(this.input.gear===id)b.classList.add('active');
+
+      const selectGear=(e)=>{
+        if(e)e.preventDefault?.();
+        if(!this.armed||b.disabled)return;
+        if(this.input.gear===id){
+          this.input.setGear(null);
+          setTimeout(()=>{
+            if(this.armed){
+              this.input.setGear(id);
+              if($('gear-display'))$('gear-display').textContent=id.startsWith('gear')?id.slice(4):id[0].toUpperCase();
+              for(const c of $('gear-buttons').children)c.classList.toggle('active',c===b);
+            }
+          },40);
+        }else{
+          this.input.setGear(id);
+        }
+        if($('gear-display'))$('gear-display').textContent=id.startsWith('gear')?id.slice(4):id[0].toUpperCase();
         for(const c of $('gear-buttons').children)c.classList.toggle('active',c===b);
       };
+
+      b.addEventListener('pointerdown',selectGear);
+      b.onclick=(e)=>{if(e.detail===0)selectGear(e);};
       $('gear-buttons').append(b);
     }
     const mode=this.profile.mode;
@@ -371,8 +505,13 @@ class ControllerApp{
     $('h-shifter').hidden=!isH;$('gear-buttons').hidden=!isAT;$('gear-display').classList.toggle('h-mode',isH);
     const shiftBtns=document.querySelector('.shift-buttons');if(shiftBtns)shiftBtns.hidden=!isMT;
     if(isH)$('gear-display').textContent=this.hShifter.getGearLabel(this.input.gear);
-    this.hShifter.setAvailability(H_SLOTS.filter(slot=>supportsAction(ACTIONS.find(action=>action.id===slot.id),this.profile,this.capabilities)).map(slot=>slot.id));this.hShifter.setEnabled(this.armed&&isH);if(isH)this.hShifter.reset(false);
+    else if(isAT)$('gear-display').textContent=this.input.gear?(this.input.gear.startsWith('gear')?this.input.gear.slice(4):this.input.gear[0].toUpperCase()):'—';
+    this.hShifter.setAvailability(H_SLOTS.filter(slot=>supportsAction(ACTIONS.find(action=>action.id===slot.id),this.profile,this.capabilities)).map(slot=>slot.id));
+    this.hShifter.setEnabled(this.armed&&isH);
+    this.hShifter.updateTruckToggles(this.profile,this.capabilities);
+    if(isH)this.hShifter.sync(this.input.gear);
     $('clutch-col').hidden=!['MTC','H'].includes(mode);
+    this.updateSpecialButtonVisuals?.();
   }
   fillProfileForm(status){
     $('selection').value=status.selection;$('game').value=this.profile.gameId;this.populateModes();
@@ -393,7 +532,15 @@ class ControllerApp{
     if(code===191)return '/';
     return String.fromCharCode(code);
   }
-  updateBinding(){const index=$('binding-action').value;$('binding-key').value=String(this.profile.keys[index]||0);}
+  updateBinding(){
+    const index=$('binding-action').value;
+    const isExplicit=this.profile.keys&&(index in this.profile.keys||String(index) in this.profile.keys);
+    const isGear=Number(index)<10;
+    const isAtGear=(this.profile?.mode==='AT'&&Number(index)===6)||(Number(index)>=7&&Number(index)<=9);
+    const defaultKey=((isGear&&this.profile.backend==='vjoy')||isAtGear)?0:(DEFAULT_KEYS[index]||0);
+    const key=isExplicit?Number(this.profile.keys[index]):defaultKey;
+    $('binding-key').value=String(key);
+  }
   saveProfile(){
     if(this.armed){this.notify('Tạm ngưng trước khi đổi profile.');return;}
     this.reset();
@@ -443,10 +590,9 @@ class ControllerApp{
     $('connect-form').onsubmit=e=>{e.preventDefault();const pin=$('pair-pin').value.trim();if(!/^\d{6}$/.test(pin))return;settingsMgr.saveSettings({receiverHost:$('receiver-host').value.trim()});$('pair-feedback').textContent='Đang ghép đôi…';this.connect(pin);};
     $('center').onclick=()=>{
       this.pause();
-      const current=this.wheel.currentAngle||0;
-      settingsMgr.saveCalibration({centerOffsetDeg:current,isCalibrated:true});
       this.wheel.resetToCenter();
-      this.notify(`Đã đặt tâm vô-lăng (${current.toFixed(1)}°). Nhấn Bắt đầu để tiếp tục.`);
+      settingsMgr.saveCalibration({centerOffsetDeg:0,isCalibrated:true});
+      this.notify('Đã cân tâm vô-lăng về 0° thẳng lái. Nhấn Bắt đầu để tiếp tục.');
     };
     const fields={deadzone:['steeringDeadzone',.01],curve:['steeringCurve',1],spring:['autoCenterMs',1],'clutch-threshold':['clutchThreshold',.01]};
     for(const [id,[key,scale]]of Object.entries(fields))$(id).oninput=()=>{this.pause();settingsMgr.saveSettings({[key]:Number($(id).value)*scale});this.syncSettings();};
@@ -494,8 +640,29 @@ class ControllerApp{
   }
   sendStateFrame(neutral=false){
     if(!this.armed||this.ws?.readyState!==1||(typeof document!=='undefined'&&document.hidden))return;
-    if(this.ws.bufferedAmount>4096){return;} // backoff silently instead of pausing
-    while(this.pending.size>=64){const oldestKey=this.pending.keys().next().value;this.pending.delete(oldestKey);} // clear stale acks without dropping frame
+    if(this.ws.bufferedAmount>4096){
+      this.consecutiveHighBuffer=(this.consecutiveHighBuffer||0)+1;
+      if(this.consecutiveHighBuffer>=10){
+        this.pause('Mạng bị nghẽn (WebSocket buffer đầy)');
+        this.notify('Tạm ngưng: mạng bị nghẽn (>4KB). Vui lòng thử lại.');
+      }
+      return;
+    }
+    this.consecutiveHighBuffer=0;
+
+    const MAX_PENDING=64;
+    if(this.pending.size>=MAX_PENDING){
+      const oldest=this.pending.values().next().value;
+      const now=performance.now();
+      if(oldest&&(now-(oldest.enqueuedAt||0)>1000)){
+        this.pause('Mất kết nối hoặc nghẽn ACK kéo dài');
+        this.notify('Tạm ngưng: không nhận được phản hồi từ Gateway (>1s).');
+        return;
+      }
+      const oldestKey=this.pending.keys().next().value;
+      this.pending.delete(oldestKey);
+    }
+
     const s=settingsMgr.settings,mode=this.profile.mode,snapshot=this.input.snapshot(performance.now(),mode);
     const hasClutch=['MTC','H'].includes(mode);
     const clutch=hasClutch?this.travel.clutch:0;
@@ -532,10 +699,18 @@ class ControllerApp{
       steering:normalizeSteering(correctedAngle,{maxAngleDeg:this.profile.range/2,deadzone:s.steeringDeadzone,curveExponent:s.steeringCurve}),
       brake:normalizePedal(this.travel.brake,{lowerDeadzone:s.pedalDeadzone,upperSaturation:1-s.pedalDeadzone}),
       throttle:normalizePedal(this.travel.throttle,{lowerDeadzone:s.pedalDeadzone,upperSaturation:1-s.pedalDeadzone})};
-    this.sequence=(this.sequence+1)&255;state.sequence=this.sequence;
+    const prevSeq=this.sequence;
+    this.sequence=(this.sequence+1)&255;
+    if(this.sequence<prevSeq){
+      this.sequenceCycle++;
+    }
+    state.sequence=this.sequence;
     for(const frame of encodeSnapshot(state))this.ws.send(frame);
     this.input.notifyTransmitted?.(snapshot,performance.now());
-    this.pending.set(this.sequence,neutral?{active:new Set(),sessionEpoch:this.sessionEpoch}:{...snapshot,sessionEpoch:this.sessionEpoch});
+    const pendingEntry=neutral
+      ?{active:new Set(),pulseIds:[],sessionEpoch:this.sessionEpoch,sequenceCycle:this.sequenceCycle,enqueuedAt:performance.now()}
+      :{...snapshot,sessionEpoch:this.sessionEpoch,sequenceCycle:this.sequenceCycle,enqueuedAt:performance.now()};
+    this.pending.set(this.sequence,pendingEntry);
   }
   loop(now){
     requestAnimationFrame(t=>this.loop(t));
@@ -550,7 +725,11 @@ class ControllerApp{
     if(!this.nextSend||now>=this.nextSend){this.nextSend=now+interval;this.sendStateFrame();}
     if(now-this.stats.start>=1000){
       this.stats.hz=Math.round(this.stats.count*1000/(now-this.stats.start));
-      if(this.diagnosticsOutput)this.diagnosticsOutput.textContent=this.stats.hz+' Hz · '+this.stats.count+' gói được nhận / chu kỳ';
+      if(this.diagnosticsOutput){
+        const queueInfo=this.pending.size>0?` · Hàng đợi: ${Math.round(this.pending.size/2)}`:'';
+        const bpInfo=this.ws?.bufferedAmount?` · Đệm: ${this.ws.bufferedAmount}B`:'';
+        this.diagnosticsOutput.textContent=this.stats.hz+' Hz · '+this.stats.count+' gói được nhận / chu kỳ'+queueInfo+bpInfo;
+      }
       this.stats.count=0;
       this.stats.start=now;
     }

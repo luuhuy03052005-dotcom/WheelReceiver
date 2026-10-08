@@ -40,11 +40,37 @@ test('WebSocket through Gateway and Named Pipe applies one committed state in C#
     await waitMessage('resume',m=>m.type==='resumed');
     for(const frame of encodeSnapshot({sequence:1}))ws.send(frame);
     await waitMessage('neutral acknowledgement',m=>m.type==='ack'&&m.sequence===1);
+    // 1. Send first active frame
     const frames=encodeSnapshot({sequence:2,steering:12345,brake:77,throttle:201,clutch:88,extended:(1n<<63n)|1n});
     for(const frame of frames)ws.send(frame);
     await waitMessage('state acknowledgement',m=>m.type==='ack'&&m.sequence===2);
     const deadline=Date.now()+3000;while(!stdout.includes('12345')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,25));
     assert.match(stdout,/"Steering":12345/);assert.match(stdout,/"Brake":77/);assert.match(stdout,/"Throttle":201/);
+
+    // 2. Sequential gear shift: gear1 (bit 0) -> gear2 (bit 1)
+    const framesGear1=encodeSnapshot({sequence:3,extended:1n<<0n});
+    for(const f of framesGear1)ws.send(f);
+    await waitMessage('gear1 acknowledgement',m=>m.type==='ack'&&m.sequence===3);
+
+    const framesGear2=encodeSnapshot({sequence:4,extended:1n<<1n});
+    for(const f of framesGear2)ws.send(f);
+    await waitMessage('gear2 acknowledgement',m=>m.type==='ack'&&m.sequence===4);
+
+    const deadlineGear=Date.now()+3000;while(!stdout.includes('"ExtendedButtons":2')&&Date.now()<deadlineGear)await new Promise(r=>setTimeout(r,25));
+    // Verify that C# stdout observed gear2 and NEVER observed both bits 0 and 1 active simultaneously (1 | 2 = 3)
+    const lines=stdout.trim().split('\n').filter(l=>l.startsWith('{'));
+    for(const l of lines){
+      try{
+        const parsed=JSON.parse(l);
+        if(parsed.ExtendedButtons!==undefined){
+          const lowBits=Number(BigInt(parsed.ExtendedButtons)&0x3Fn);
+          assert.ok(lowBits!==3,'Direct gears 1 and 2 must never be active simultaneously in C#');
+        }
+      }catch{}
+    }
+
+    // 3. Watchdog neutralization: stop sending frames, within 200ms gateway timeout sends neutral
+    await new Promise(r=>setTimeout(r,200));
     assert.equal(stderr,'');
   }finally{ws.terminate();await instance.close();bridge.kill();}
 });

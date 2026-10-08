@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import fs from 'node:fs';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import express from 'express';
@@ -17,21 +18,23 @@ export function createGatewayServer(options={}){
   const pipeClient=options.pipeClient||new PipeClient(options.pipePath);
   const runtime=options.runtime||new RuntimeManager({file:options.dataDir&&path.join(options.dataDir,'profiles.json'),detect:options.detect===true,discoverScript:options.discoverScript});
   let owner=null,armed=false,configured=false,profilePending=false,lastSeq=null,lastValid=0,requireNeutral=true,closed=false,neutralizedOnTimeout=false;
-  let pendingA=null,pendingB=null,appliedRevision=0;
+  let pendingA=null,pendingB=null,appliedRevision=0,incoherentExtension=false;
   let connectionEpoch=0,inFlightConfig=null,queuedConfig=null;
+  let driveSessionEpoch=1,sequenceCycle=0;
   const send=(ws,msg)=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));};
   const status=()=>({type:'status',...runtime.status(),
     configured:configured&&!profilePending&&inFlightConfig===null&&queuedConfig===null&&appliedRevision===runtime.revision,
     profilePending:profilePending||inFlightConfig!==null||queuedConfig!==null,
     appliedRevision,armed,
     bridge:{connected:pipeClient.isConnected,ready:pipeClient.ready,...pipeClient.capabilities},
+    backpressure:{queueDepth:pipeClient.queue?.length||0,needDrain:pipeClient.needDrain},
     input:pipeClient.lastFrame||null,
     connectionTransport: (()=>{const address=(owner?._socket||owner?.socket)?.localAddress?.replace(/^::ffff:/,'');
       const network=runtime.status().networks.find(n=>n.address===address);
       return network?(network.usbVerified?'Phiên đang qua adapter mạng USB: ':'Phiên đang qua adapter '+network.kind+': ')+network.name+' ('+address+')':address?'Phiên đang qua '+address:null;})()});
   const broadcast=()=>send(owner,status());
-  const clear=()=>{lastSeq=null;pendingA=null;pendingB=null;requireNeutral=true;neutralizedOnTimeout=false;};
-  const pause=(reason='Đã tạm ngưng')=>{armed=false;clear();pipeClient.sendNeutral();send(owner,{type:'paused',reason});broadcast();};
+  const clear=()=>{lastSeq=null;sequenceCycle=0;pendingA=null;pendingB=null;incoherentExtension=false;requireNeutral=true;neutralizedOnTimeout=false;};
+  const pause=(reason='Đã tạm ngưng')=>{driveSessionEpoch++;armed=false;clear();pipeClient.sendNeutral();send(owner,{type:'paused',reason});broadcast();};
   const dispatchConfig=()=>{
     if(!pipeClient.isConnected){
       configured=false;
@@ -73,6 +76,9 @@ export function createGatewayServer(options={}){
     broadcast();
   });
   runtime.on('status',broadcast);
+  pipeClient.on('backpressure_overflow',({reason})=>{
+    if(armed)pause('Nghẽn đường truyền IPC: '+reason);
+  });
   pipeClient.on('connected',()=>{
     connectionEpoch++;
     inFlightConfig=null;queuedConfig=null;configured=false;
@@ -107,6 +113,10 @@ export function createGatewayServer(options={}){
   pipeClient.connect();
   app.use(express.static(options.publicDir||path.resolve(here,'../../controller-web/public')));
   app.use('/packages',express.static(options.packagesDir||path.resolve(here,'../../../packages')));
+  const imagesDir = path.resolve(here, '../../../images');
+  if (fs.existsSync(imagesDir)) {
+    app.use('/images', express.static(imagesDir));
+  }
   app.get('/api/status',(req,res)=>res.json({status:'ok',pipeConnected:pipeClient.isConnected,hasActiveController:!!owner}));
   // Only the local Receiver may generate a pairing challenge.
   app.post('/api/pairing/generate',(req,res)=>{
@@ -128,11 +138,33 @@ export function createGatewayServer(options={}){
         if(++binaryCount>1200)return;
         if(ws!==owner||!pairing.validateToken(ws.deviceToken)||!armed)return;
         const frame=Buffer.from(data);if(!validInputFrame(frame)){pendingA=pendingB=null;return;}
-        lastValid=now;
-        if(frame[0]===EXT_A){pendingA=frame;pendingB=null;return;}
-        if(frame[0]===EXT_B){if(pendingA?.[1]===frame[1])pendingB=frame;else pendingA=pendingB=null;return;}
+        if(frame[0]===EXT_A){pendingA=frame;pendingB=null;incoherentExtension=false;return;}
+        if(frame[0]===EXT_B){
+          if(pendingA?.[1]===frame[1])pendingB=frame;
+          else {pendingA=null;pendingB=null;incoherentExtension=true;}
+          return;
+        }
+        if(frame[0]!==FRAME_HEADER){pendingA=pendingB=null;incoherentExtension=false;return;}
+        if(incoherentExtension){incoherentExtension=false;pendingA=pendingB=null;return;}
         const state=decodeFrame(frame);
+        if(!state){pendingA=pendingB=null;return;}
         if(lastSeq!==null&&!compareSequence(state.sequence,lastSeq).isNewer){pendingA=pendingB=null;return;}
+
+        // Extensions coherence check:
+        // If extensions were staged, both EXT_A and EXT_B must be present and match state sequence.
+        // If partial/mismatched, do NOT downgrade to state-only! Drop!
+        if(pendingA!==null||pendingB!==null){
+          if(!pendingA||!pendingB||pendingA[1]!==state.sequence||pendingB[1]!==state.sequence){
+            pendingA=pendingB=null;
+            return;
+          }
+        }
+
+        // Track sequence wrap (255 -> 0)
+        if(lastSeq!==null&&state.sequence<lastSeq){
+          sequenceCycle++;
+        }
+
         let frames;
         let extClutch=0,extHasBits=false;
         if(pendingA&&pendingB&&pendingA[1]===state.sequence&&pendingB[1]===state.sequence){
@@ -142,14 +174,16 @@ export function createGatewayServer(options={}){
           if(lower!==0||upper!==0)extHasBits=true;
           frames=[pendingA,pendingB,frame];
         }else{
+          // Legacy standalone 0x11 without extensions
           frames=[frame];
         }
         pendingA=pendingB=null;
+
         const neutral=state.buttons===0&&Math.abs(state.steering)<=500&&state.brake===0&&state.throttle===0&&extClutch===0&&!extHasBits;
         if(requireNeutral){
           if(!neutral){
             pipeClient.sendNeutral();
-            send(ws,{type:'require_neutral',sequence:state.sequence});
+            send(ws,{type:'require_neutral',sequence:state.sequence,sessionEpoch:driveSessionEpoch});
             return;
           }
           requireNeutral=false;
@@ -161,10 +195,15 @@ export function createGatewayServer(options={}){
           pipeClient.sendNeutral();
           lastSeq=state.sequence;
           neutralizedOnTimeout=false;
-          send(ws,{type:'ack',sequence:lastSeq,revision:appliedRevision});
+          send(ws,{type:'ack',sequence:lastSeq,sequenceCycle,sessionEpoch:driveSessionEpoch,revision:appliedRevision});
           return;
         }
-        if(pipeClient.sendFrames(frames)){lastSeq=state.sequence;neutralizedOnTimeout=false;send(ws,{type:'ack',sequence:lastSeq,revision:appliedRevision});}
+        if(pipeClient.sendFrames(frames)){
+          lastValid=now;
+          lastSeq=state.sequence;
+          neutralizedOnTimeout=false;
+          send(ws,{type:'ack',sequence:lastSeq,sequenceCycle,sessionEpoch:driveSessionEpoch,revision:appliedRevision});
+        }
         else pipeClient.sendNeutral();
         return;
       }
@@ -211,8 +250,9 @@ export function createGatewayServer(options={}){
           if(msg.revision!==undefined&&msg.revision!==appliedRevision){
             send(ws,{type:'resume_rejected',reason:'revision_mismatch',message:'Phiên bản profile yêu cầu đã cũ hoặc không khớp'});return;
           }
+          driveSessionEpoch++;
           clear();pipeClient.sendNeutral();armed=true;requireNeutral=true;lastValid=Date.now();
-          send(ws,{type:'resumed',revision:appliedRevision});broadcast();return;
+          send(ws,{type:'resumed',revision:appliedRevision,sessionEpoch:driveSessionEpoch});broadcast();return;
         }
       }catch(error){send(ws,{type:'error',message:error.message||'Thông điệp không hợp lệ'});}
     });

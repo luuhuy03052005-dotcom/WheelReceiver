@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'lan_wheel_layouts_v5';
+import {ACTION_IMAGE_MAP} from './assets.js';
+const STORAGE_KEY = 'lan_wheel_layouts_v6';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 export const DEFAULT_WIDGETS = {
@@ -16,19 +17,18 @@ export const PRESETS = {
       'hud-pedals': { x: 79, y: 50, scale: 1.05 }
     },
     items: [
-      { id: 'il-1', actionId: 'indicatorLeft', x: 38, y: 15, size: 54, opacity: 1 },
-      { id: 'hz-1', actionId: 'hazards', x: 51, y: 15, size: 50, opacity: 1 },
-      { id: 'ir-1', actionId: 'indicatorRight', x: 64, y: 15, size: 54, opacity: 1 },
-      { id: 'light-1', actionId: 'lowBeam', x: 75, y: 15, size: 54, opacity: 1 },
-      { id: 'high-1', actionId: 'highBeam', x: 88, y: 15, size: 54, opacity: 1 },
-      { id: 'horn-1', actionId: 'horn', x: 38, y: 35, size: 56, opacity: 1 },
-      { id: 'wiper-1', actionId: 'wiperCycle', x: 64, y: 35, size: 54, opacity: 1 },
-      { id: 'starter-1', actionId: 'starter', x: 76, y: 35, size: 54, opacity: 1 },
-      { id: 'park-1', actionId: 'parkingBrake', x: 89, y: 35, size: 54, opacity: 1 },
-      { id: 'diff-1', actionId: 'diffLock', x: 38, y: 55, size: 52, opacity: 1 },
-      { id: 'retup-1', actionId: 'retarderUp', x: 73, y: 75, size: 52, opacity: 1 },
-      { id: 'retdn-1', actionId: 'retarderDown', x: 83, y: 75, size: 52, opacity: 1 },
-      { id: 'engbrk-1', actionId: 'engineBrake', x: 93, y: 75, size: 52, opacity: 1 }
+      { id: 'starter-1', actionId: 'starter', x: 38, y: 14, size: 58, opacity: 1 },
+      { id: 'il-1', actionId: 'indicatorLeft', x: 46, y: 14, size: 52, opacity: 1 },
+      { id: 'hz-1', actionId: 'hazards', x: 54, y: 14, size: 50, opacity: 1 },
+      { id: 'ir-1', actionId: 'indicatorRight', x: 62, y: 14, size: 52, opacity: 1 },
+      { id: 'light-1', actionId: 'lowBeam', x: 38, y: 32, size: 54, opacity: 1 },
+      { id: 'high-1', actionId: 'highBeam', x: 46, y: 32, size: 54, opacity: 1 },
+      { id: 'horn-1', actionId: 'horn', x: 54, y: 32, size: 56, opacity: 1 },
+      { id: 'wiper-1', actionId: 'wiperCycle', x: 62, y: 32, size: 54, opacity: 1 },
+      { id: 'park-1', actionId: 'parkingBrake', x: 40, y: 50, size: 50, opacity: 1 },
+      { id: 'diff-1', actionId: 'diffLock', x: 48, y: 50, size: 50, opacity: 1 },
+      { id: 'retdn-1', actionId: 'retarderDown', x: 56, y: 50, size: 50, opacity: 1 },
+      { id: 'retup-1', actionId: 'retarderUp', x: 64, y: 50, size: 50, opacity: 1 }
     ]
   },
   default_left: {
@@ -39,14 +39,14 @@ export const PRESETS = {
       'hud-pedals': { x: 79, y: 50, scale: 1.0 }
     },
     items: [
-      { id: 'il-1', actionId: 'indicatorLeft', x: 38, y: 15, size: 52, opacity: 1 },
-      { id: 'hz-1', actionId: 'hazards', x: 46, y: 15, size: 52, opacity: 1 },
-      { id: 'cam-1', actionId: 'camera', x: 54, y: 15, size: 52, opacity: 1 },
+      { id: 'starter-1', actionId: 'starter', x: 38, y: 15, size: 58, opacity: 1 },
+      { id: 'il-1', actionId: 'indicatorLeft', x: 46, y: 15, size: 52, opacity: 1 },
+      { id: 'hz-1', actionId: 'hazards', x: 54, y: 15, size: 50, opacity: 1 },
       { id: 'ir-1', actionId: 'indicatorRight', x: 62, y: 15, size: 52, opacity: 1 },
-      { id: 'horn-1', actionId: 'horn', x: 73, y: 15, size: 56, opacity: 1 },
-      { id: 'beam-1', actionId: 'highBeam', x: 88, y: 15, size: 56, opacity: 1 },
-      { id: 'nitro-1', actionId: 'nitro', x: 78, y: 34, size: 58, opacity: 1 },
-      { id: 'wiper-1', actionId: 'wiperCycle', x: 91, y: 34, size: 58, opacity: 1 }
+      { id: 'light-1', actionId: 'lowBeam', x: 38, y: 33, size: 54, opacity: 1 },
+      { id: 'horn-1', actionId: 'horn', x: 46, y: 33, size: 56, opacity: 1 },
+      { id: 'beam-1', actionId: 'highBeam', x: 54, y: 33, size: 54, opacity: 1 },
+      { id: 'cam-1', actionId: 'camera', x: 62, y: 33, size: 52, opacity: 1 }
     ]
   },
   inverted_right: {
@@ -400,7 +400,9 @@ export class LayoutEditor {
         button.type = 'button';
         button.className = 'palette-action';
         button.dataset.action = action.id;
-        button.innerHTML = `<span>${this.shortLabel(action)}</span><small>Chạm / kéo</small>`;
+        const imgSrc = ACTION_IMAGE_MAP[action.id];
+        const iconHtml = imgSrc ? `<img src="${imgSrc}" class="palette-icon-img" alt="" aria-hidden="true" draggable="false" />` : '';
+        button.innerHTML = `${iconHtml}<span>${this.shortLabel(action)}</span><small>Chạm / kéo</small>`;
 
         this.bindPaletteDrag(button, action);
         row.append(button);

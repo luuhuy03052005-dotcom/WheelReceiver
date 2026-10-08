@@ -4,17 +4,19 @@ public sealed class FrameAssembler
 {
     private byte[]? _a,_b;
     private byte? _last;
-    public void Reset(){_a=null;_b=null;_last=null;}
+    private bool _incoherent;
+    public void Reset(){_a=null;_b=null;_last=null;_incoherent=false;}
     public bool Accept(ReadOnlySpan<byte> frame,out ControllerState state)
     {
         state=ControllerState.Neutral;
         if(frame.Length!=8)return false;
-        if(frame[0]==0x12){_a=frame.ToArray();_b=null;return false;}
+        if(frame[0]==0x12){_a=frame.ToArray();_b=null;_incoherent=false;return false;}
         if(frame[0]==0x13){
             if(_a!=null && _a[1]==frame[1] && frame[6]==0 && frame[7]==0)_b=frame.ToArray();
-            else {_a=null;_b=null;}
+            else {_a=null;_b=null;_incoherent=true;}
             return false;
         }
+        if(_incoherent){_incoherent=false;_a=null;_b=null;return false;}
         if(!ControllerState.TryParse(frame,out state)){_a=null;_b=null;return false;}
         int delta=_last.HasValue?(state.Sequence-_last.Value+256)%256:1;
         if(delta==0||delta>=128){_a=null;_b=null;return false;}
@@ -24,6 +26,6 @@ public sealed class FrameAssembler
                 ((ulong)BinaryPrimitives.ReadUInt32LittleEndian(_b.AsSpan(2,4))<<32);
             state=state with {Clutch=_a[2],GearMode=_a[3],ExtendedButtons=bits};
         }
-        _last=state.Sequence;_a=null;_b=null;return true;
+        _last=state.Sequence;_a=null;_b=null;_incoherent=false;return true;
     }
 }

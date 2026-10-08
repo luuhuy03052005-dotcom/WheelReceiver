@@ -40,7 +40,7 @@ public sealed class NamedPipeServer : IDisposable
                     await pipe.ReadExactlyAsync(buffer,ct);
                     bool report=false;ControllerState? applied=null;
                     lock(_watchdog.SyncRoot){
-                        if(buffer[0]==0x1f && buffer.AsSpan(1).IndexOfAnyExcept((byte)0)<0){assembler.Reset();_watchdog.Reset();report=true;}
+                        if(buffer[0]==0x1f && buffer.AsSpan(1).IndexOfAnyExcept((byte)0)<0){assembler.Reset();_watchdog.Reset();_adapter.ResetToNeutral();report=true;}
                         else if(buffer[0]==0x15 && buffer[1] is 1 or 2 && buffer[2]==0 && buffer[3]==0 && _adapter is RoutedGamepadAdapter router){
                             _watchdog.Reset();assembler.Reset();router.Configure(buffer[1]);
                             router.TargetPid=BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan(4,4));report=true;

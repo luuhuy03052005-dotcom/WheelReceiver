@@ -33,8 +33,14 @@ const definitions = [
   ['lookLeft','Nhìn trái','game','hold'],['lookRight','Nhìn phải','game','hold'],
   ['pause','Menu / tạm dừng','game'],['resetVehicle','Đặt lại xe','game']
 ];
-export const ACTIONS=Object.freeze(definitions.map(([id,label,group,kind='pulse'],index)=>
-  Object.freeze({id,label,group,kind,index,vjoy:index<10?index+1:index+7})));
+export const ACTIONS=Object.freeze(definitions.map(([id,label,group,kind='pulse'],index)=>{
+  let vjoy;
+  if(id==='parkingBrake') vjoy=11;
+  else if(id==='camera') vjoy=15;
+  else if(index<10) vjoy=index+1;
+  else vjoy=index+7;
+  return Object.freeze({id,label,group,kind,index,vjoy});
+}));
 export const GROUPS={lighting:'Đèn & tín hiệu',visibility:'Tầm nhìn',cabin:'Vận hành & cabin',assistance:'Hỗ trợ lái',truck:'Xe tải',game:'Tiện ích game'};
 export const GAMES=[
   {id:'generic',name:'Game tùy chỉnh',executables:[],backend:'xinput',range:900,modes:['AT','MT','MTC','H'],groups:Object.keys(GROUPS)},
@@ -103,14 +109,121 @@ export const DEFAULT_KEYS = Object.freeze({
   63: 82   // resetVehicle: R (82)
 });
 
-export function supportsAction(action,profile,capabilities={}) {
-  if(['parkingBrake','handbrake','camera','cameraPrimary','shiftUp','shiftDown','clutchTap','clutchQuick','nitro','park','reverse','neutral','drive'].includes(action.id)) {
-    return true;
+export function resolveVJoyButton(actionId,mode='AT',maxButtons=70){
+  const normId=actionId==='handbrake'?'parkingBrake':(actionId==='cameraPrimary'?'camera':actionId);
+  if(maxButtons<16){
+    if(maxButtons<8)return null;
+    if(mode==='H'){
+      const hMap={gear1:1,gear2:2,gear3:3,gear4:4,gear5:5,gear6:6,reverse:7,parkingBrake:8};
+      return hMap[normId]||null;
+    }
+    if(mode==='AT'){
+      const atMap={parkingBrake:1,camera:2,nitro:3,park:5,reverse:6,neutral:7,drive:8};
+      return atMap[normId]||null;
+    }
+    if(mode==='MT'){
+      const mtMap={parkingBrake:1,shiftUp:2,shiftDown:3,nitro:4,camera:5};
+      return mtMap[normId]||null;
+    }
+    if(mode==='MTC'){
+      const mtcMap={parkingBrake:1,shiftUp:2,shiftDown:3,nitro:4,camera:5,clutchTap:6,clutchQuick:6};
+      return mtcMap[normId]||null;
+    }
+    return null;
   }
-  const isGear = action.index < 10;
-  const defaultKey = (isGear && profile.backend === 'vjoy') ? 0 : (DEFAULT_KEYS[action.index] || 0);
-  const key = profile.keys[action.index] || defaultKey;
-  if(key) return capabilities.keyboard!==false;
-  const maxButtons = capabilities.buttons !== undefined ? capabilities.buttons : (profile.backend==='vjoy'?70:0);
-  return profile.backend==='vjoy' && action.vjoy <= maxButtons;
+  const gearMap={gear1:1,gear2:2,gear3:3,gear4:4,gear5:5,gear6:6,reverse:7,park:8,drive:9,neutral:10};
+  if(gearMap[normId]){
+    return gearMap[normId]<=maxButtons?gearMap[normId]:null;
+  }
+  const primaryMap={
+    parkingBrake:11,shiftUp:12,shiftDown:13,nitro:14,camera:15,clutchTap:16,clutchQuick:16
+  };
+  if(primaryMap[normId]){
+    return primaryMap[normId]<=maxButtons?primaryMap[normId]:null;
+  }
+  const act=ACTIONS.find(a=>a.id===normId);
+  if(act&&act.index>=10){
+    const btn=act.index+7;
+    return btn<=maxButtons?btn:null;
+  }
+  return null;
+}
+
+export function resolveActionRoute(action,profile,capabilities={}) {
+  let canonical=action;
+  if(typeof action==='string'){
+    canonical=ACTIONS.find(a=>a.id===action);
+    if(!canonical){
+      if(action==='handbrake')canonical=ACTIONS.find(a=>a.id==='parkingBrake');
+      else if(action==='cameraPrimary')canonical=ACTIONS.find(a=>a.id==='camera');
+      else if(['shiftUp','shiftDown','nitro','clutchTap','clutchQuick'].includes(action)){
+        canonical={id:action,group:'transmission',kind:'pulse'};
+      }
+    }
+  }else if(action&&typeof action==='object'){
+    if(action.id==='handbrake')canonical=ACTIONS.find(a=>a.id==='parkingBrake');
+    else if(action.id==='cameraPrimary')canonical=ACTIONS.find(a=>a.id==='camera');
+    else if(!canonical.index&&canonical.index!==0&&action.id)canonical=ACTIONS.find(a=>a.id===action.id)||action;
+  }
+  if(!canonical)return {type:'none',reason:'Action không tồn tại'};
+
+  const mode=capabilities?.mode||profile?.mode||'AT';
+  const backend=profile?.backend||'xinput';
+  const maxButtons=capabilities?.buttons!==undefined?capabilities.buttons:(backend==='vjoy'?70:0);
+
+  if(canonical.group&&canonical.group!=='transmission'&&profile?.groups&&!profile.groups.includes(canonical.group)){
+    return {type:'none',reason:'Không thuộc nhóm profile hỗ trợ'};
+  }
+
+  const primaryOnly=['shiftUp','shiftDown','nitro','clutchTap','clutchQuick'];
+  if(primaryOnly.includes(canonical.id)){
+    if(backend==='vjoy'){
+      const vjoyBtn=resolveVJoyButton(canonical.id,mode,maxButtons);
+      if(vjoyBtn){
+        return {type:'vjoy',button:vjoyBtn,isPrimary:true};
+      }
+      return {type:'none',key:0,reason:`vJoy không có nút cho ${canonical.id} trong chế độ ${mode} (${maxButtons} nút)`};
+    }
+    return {type:'xinput',isPrimary:true};
+  }
+
+  const isGear=canonical.index<10;
+  const isAtGear=(mode==='AT'&&canonical.index===6)||(canonical.index>=7&&canonical.index<=9);
+  const defaultKey=((isGear&&backend==='vjoy')||isAtGear)?0:(DEFAULT_KEYS[canonical.index]||0);
+  const isExplicit=profile?.keys&&(canonical.index in profile.keys||String(canonical.index) in profile.keys);
+  const key=isExplicit?Number(profile.keys[canonical.index]):defaultKey;
+
+  if(key!==0){
+    if(capabilities.keyboard===false){
+      return {type:'none',key,reason:'Keyboard sender bị vô hiệu hóa'};
+    }
+    return {type:'keyboard',key,isExplicit};
+  }
+
+  if(backend==='vjoy'){
+    const vjoyButton=resolveVJoyButton(canonical.id,mode,maxButtons);
+    if(vjoyButton){
+      return {type:'vjoy',button:vjoyButton,isExplicit};
+    }
+    return {type:'none',key:0,reason:`vJoy không đủ nút hoặc không hỗ trợ trong chế độ ${mode} (hiện có ${maxButtons} nút)`};
+  }
+
+  if(backend==='xinput'){
+    const xinputSupported=[
+      'parkingBrake','handbrake','camera','cameraPrimary',
+      'shiftUp','shiftDown','clutchTap','clutchQuick','nitro',
+      'park','reverse','neutral','drive'
+    ];
+    if(xinputSupported.includes(canonical.id)){
+      return {type:'xinput',isExplicit};
+    }
+    return {type:'none',key:0,reason:'XInput không hỗ trợ action phụ trợ này khi tắt phím'};
+  }
+
+  return {type:'none',key:0,reason:'Không có route khả dụng'};
+}
+
+export function supportsAction(action,profile,capabilities={}) {
+  const route=resolveActionRoute(action,profile,capabilities);
+  return route.type!=='none';
 }

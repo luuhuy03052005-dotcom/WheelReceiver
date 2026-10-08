@@ -159,9 +159,11 @@ test('P0 Safety: PipeClient mailbox coalescing preserves button edges during con
   assert.equal(client.sendFrames(frames1), true);
   assert.equal(client.sendFrames(frames2), true);
 
-  // Both button presses must be preserved via bitwise OR
-  assert.equal(client.pendingSnapshot.buttons, BUTTONS.SHIFT_UP | BUTTONS.SHIFT_DOWN);
-  // Analog values must be latest-state-wins
+  // Both button edges must be preserved chronologically in queue without corrupted bitwise OR
+  assert.equal(client.queue.length, 2);
+  assert.equal(client.queue[0].state.buttons, BUTTONS.SHIFT_UP);
+  assert.equal(client.queue[1].state.buttons, BUTTONS.SHIFT_DOWN);
+  // Analog values on latest queue item must be latest-state-wins
   assert.equal(client.pendingSnapshot.sequence, 2);
   assert.equal(client.pendingSnapshot.steering, 2000);
 });
