@@ -329,7 +329,7 @@ main {
   background: linear-gradient(165deg, rgba(22, 29, 35, 0.96) 0%, rgba(10, 14, 17, 0.98) 100%);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   touch-action: none;
-  z-index: 5;
+  z-index: 10;
   will-change: transform;
 }
 
@@ -897,7 +897,7 @@ main {
   --control-size: 58px;
   --control-opacity: 1;
   position: absolute;
-  z-index: 15;
+  z-index: 8;
   transform: translate(-50%, -50%);
   width: var(--control-size);
   height: var(--control-size);

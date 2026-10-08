@@ -145,7 +145,9 @@ class ControllerApp{
         this.sessionEpoch=msg.sessionEpoch;
         this.input.sessionEpoch=this.sessionEpoch;
       }
+      this.sequence=0;
       this.sequenceCycle=0;
+      this.lastAckTime=performance.now();
       this.pending.clear();
       this.consecutiveHighBuffer=0;
       this.setArmed(true);this.sendStateFrame(true);
@@ -158,6 +160,7 @@ class ControllerApp{
       this.updateArmButton();
     }
     else if(msg.type==='ack'){
+      this.lastAckTime=performance.now();
       const snapshot=this.pending.get(msg.sequence);
       if(snapshot){
         const epochMatch=msg.sessionEpoch!==undefined?(msg.sessionEpoch===this.sessionEpoch&&snapshot.sessionEpoch===this.sessionEpoch):(snapshot.sessionEpoch===this.sessionEpoch);
@@ -170,7 +173,7 @@ class ControllerApp{
         }
       }
     }else if(msg.type==='require_neutral'){
-      this.reset();
+      this.reset(true);
       this.notify('Đưa vô-lăng và bàn đạp về tâm để mở khóa điều khiển');
     }else if(msg.type==='pong')$('rtt').textContent=Math.round(performance.now()-msg.clientTime)+' ms RTT';
   }
@@ -205,8 +208,8 @@ class ControllerApp{
   }
   setArmed(value){
     this.armed=Boolean(value);
-    this.engineRunning=this.armed;
     if(!this.armed){
+      this.engineRunning=false;
       this.activeIndicators={left:false,right:false,hazards:false};
       this.activeLights={low:false,high:false};
       this.reset();
@@ -222,9 +225,12 @@ class ControllerApp{
       if(!this.isSettingsOpen)$('setup-panel').hidden=true;
     }
   }
-  reset(){
-    this.input.reset();
-    this.sessionEpoch=this.input.sessionEpoch;
+  reset(preserveEpoch=false){
+    if(this.atRetriggerTimer){clearTimeout(this.atRetriggerTimer);this.atRetriggerTimer=null;}
+    this.input.reset(preserveEpoch);
+    if(!preserveEpoch){
+      this.sessionEpoch=this.input.sessionEpoch;
+    }
     this.sequenceCycle=0;
     this.consecutiveHighBuffer=0;
     this.pending.clear();
@@ -481,10 +487,12 @@ class ControllerApp{
       const selectGear=(e)=>{
         if(e)e.preventDefault?.();
         if(!this.armed||b.disabled)return;
+        if(this.atRetriggerTimer){clearTimeout(this.atRetriggerTimer);this.atRetriggerTimer=null;}
         if(this.input.gear===id){
           this.input.setGear(null);
-          setTimeout(()=>{
-            if(this.armed){
+          this.atRetriggerTimer=setTimeout(()=>{
+            this.atRetriggerTimer=null;
+            if(this.armed&&this.profile?.mode==='AT'){
               this.input.setGear(id);
               if($('gear-display'))$('gear-display').textContent=id.startsWith('gear')?id.slice(4):id[0].toUpperCase();
               for(const c of $('gear-buttons').children)c.classList.toggle('active',c===b);
@@ -712,6 +720,7 @@ class ControllerApp{
     if(rBtn){
       const ranges=[360,540,720,900,1080];
       rBtn.onclick=()=>{
+        if(this.armed)this.pause('Tạm ngưng để đổi góc quay vô-lăng');
         const cur=this.profile.range||900;
         let idx=ranges.indexOf(cur);
         if(idx===-1)idx=ranges.indexOf(900);
@@ -722,6 +731,7 @@ class ControllerApp{
         if($('range'))$('range').value=next;
         if($('range-label'))$('range-label').textContent=next+'°';
         settingsMgr.saveSettings({steeringRangeDeg:next});
+        this.saveProfile();
         this.notify(`Đã đổi góc quay vô-lăng: ${next}° (${(next/360).toFixed(1)} vòng)`);
       };
     }
@@ -732,9 +742,14 @@ class ControllerApp{
       settingsMgr.resetSettings();
       settingsMgr.saveSettings({receiverHost:host});
       this.syncSettings();
-      this.wheel.setRange(settingsMgr.settings.steeringRangeDeg);
-      settingsMgr.saveCalibration({centerOffsetDeg:0,isCalibrated:false});
-      const lbl=$('wheel-range');if(lbl)lbl.textContent=settingsMgr.settings.steeringRangeDeg+'°';
+      const defRange=settingsMgr.settings.steeringRangeDeg;
+      this.profile.range=defRange;
+      this.wheel.setRange(defRange);
+      if($('range'))$('range').value=defRange;
+      if($('range-label'))$('range-label').textContent=defRange+'°';
+      const lbl=$('wheel-range');if(lbl)lbl.textContent=defRange+'°';
+      this.saveProfile();
+      this.notify('Đã khôi phục cảm giác điều khiển mặc định (giữ nguyên cân tâm vô-lăng).');
     };
     $('export-profile').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,profile:this.profile},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='wheel-'+this.profile.gameId+'.json';a.click();URL.revokeObjectURL(url);};
     $('import-profile').onchange=async e=>{
@@ -771,9 +786,14 @@ class ControllerApp{
     this.consecutiveHighBuffer=0;
 
     const MAX_PENDING=64;
+    const now=performance.now();
+    if(this.pending.size>0&&(now-(this.lastAckTime||now)>1000)){
+      this.pause('Mất kết nối hoặc nghẽn ACK kéo dài');
+      this.notify('Tạm ngưng: không nhận được phản hồi từ Gateway (>1s).');
+      return;
+    }
     if(this.pending.size>=MAX_PENDING){
       const oldest=this.pending.values().next().value;
-      const now=performance.now();
       if(oldest&&(now-(oldest.enqueuedAt||0)>1000)){
         this.pause('Mất kết nối hoặc nghẽn ACK kéo dài');
         this.notify('Tạm ngưng: không nhận được phản hồi từ Gateway (>1s).');

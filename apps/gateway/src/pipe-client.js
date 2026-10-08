@@ -37,26 +37,39 @@ export class PipeClient extends EventEmitter {
 
   bindSocket(socket){
     this.socket=socket;
+    let pendingChunk='';
     socket.on('drain',()=>{
+      if(this.socket!==socket)return;
       this.needDrain=false;
       this._flushQueue();
     });
     socket.on('data',chunk=>{
-      let pending='';pending+=chunk.toString();if(pending.length>65536){socket.destroy();return;}
-      let newline;while((newline=pending.indexOf('\n'))>=0){
-        const line=pending.slice(0,newline);pending=pending.slice(newline+1);
-        try{const msg=JSON.parse(line);this.capabilities={backend:msg.backend,buttons:msg.buttons||0,keyboard:!!msg.keyboard,error:msg.error};
-          this.ready=!!msg.connected;this.emit('status',msg);
+      if(this.socket!==socket)return;
+      pendingChunk+=chunk.toString();
+      if(pendingChunk.length>65536){socket.destroy();return;}
+      let newline;
+      while((newline=pendingChunk.indexOf('\n'))>=0){
+        const line=pendingChunk.slice(0,newline);
+        pendingChunk=pendingChunk.slice(newline+1);
+        try{
+          const msg=JSON.parse(line);
+          this.capabilities={backend:msg.backend,buttons:msg.buttons||0,keyboard:!!msg.keyboard,error:msg.error};
+          this.ready=!!msg.connected;
+          this.emit('status',msg);
         }catch{}
       }
     });
-    socket.on('error',()=>socket.destroy());
+    socket.on('error',()=>{
+      if(this.socket!==socket)return;
+      socket.destroy();
+    });
     socket.on('close',()=>{
       if(this.socket!==socket)return;
       this.socket=null;this.isConnected=false;this.ready=false;this.needDrain=false;
       this.queue=[];
       this.epoch++;
       this.lastEnqueuedState=null;
+      clearTimeout(this._pulseGapTimer);this._pulseGapTimer=null;
       this.emit('disconnected');
       if(!this.isClosedManually){this.reconnectTimer=setTimeout(()=>{this.reconnectTimer=null;this.connect();},1000);this.reconnectTimer.unref();}
     });
@@ -87,7 +100,10 @@ export class PipeClient extends EventEmitter {
         continue;
       }
       if(now-item.enqueuedAt>MAX_AGE_MS){
-        // Discard stale frame exceeding age limit
+        if(item.isPulse){
+          this.failSafe('Pulse action exceeded delivery deadline');
+          return;
+        }
         this.queue.shift();
         continue;
       }
@@ -96,6 +112,14 @@ export class PipeClient extends EventEmitter {
       const ok=this.socket.write(payload);
       if(!ok){
         this.needDrain=true;
+        break;
+      }
+      if(item.isPulse&&this.queue.length>0&&this.queue[0].isPulse){
+        clearTimeout(this._pulseGapTimer);
+        this._pulseGapTimer=setTimeout(()=>{
+          this._pulseGapTimer=null;
+          this._flushQueue();
+        },50);
         break;
       }
     }
@@ -155,6 +179,7 @@ export class PipeClient extends EventEmitter {
         frames,
         state,
         ext,
+        isPulse: hasPulseTransition,
         enqueuedAt:Date.now(),
         epoch:this.epoch
       });
@@ -199,6 +224,7 @@ export class PipeClient extends EventEmitter {
   sendFrame(frame){return this.sendFrames([frame]);}
 
   sendNeutral(){
+    clearTimeout(this._pulseGapTimer);this._pulseGapTimer=null;
     this.queue=[];
     this.lastEnqueuedState=null;
     this.epoch++;
@@ -221,7 +247,7 @@ export class PipeClient extends EventEmitter {
   }
 
   close(){
-    this.isClosedManually=true;clearTimeout(this.reconnectTimer);
+    this.isClosedManually=true;clearTimeout(this.reconnectTimer);clearTimeout(this._pulseGapTimer);this._pulseGapTimer=null;
     this.sendNeutral();this.socket?.end?.();this.isConnected=false;this.ready=false;
   }
 }

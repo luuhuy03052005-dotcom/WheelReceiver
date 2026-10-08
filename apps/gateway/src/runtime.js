@@ -94,7 +94,7 @@ export class RuntimeManager extends EventEmitter{
     if(executable !== undefined){
       let exeName=typeof executable==='string'?executable.trim().replace(/^["']|["']$/g,''):'';
       if(exeName.includes('/')||exeName.includes('\\')){
-        exeName=path.basename(exeName);
+        exeName=path.basename(exeName.replace(/\\/g, '/'));
       }
       if(exeName){
         if(!/^[\w. -]+\.exe$/i.test(exeName))throw new Error('Tên tiến trình phải kết thúc bằng .exe');

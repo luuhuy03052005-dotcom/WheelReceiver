@@ -17,18 +17,18 @@ export const PRESETS = {
       'hud-pedals': { x: 79, y: 50, scale: 1.05 }
     },
     items: [
-      { id: 'starter-1', actionId: 'starter', x: 38, y: 14, size: 58, opacity: 1 },
-      { id: 'il-1', actionId: 'indicatorLeft', x: 46, y: 14, size: 52, opacity: 1 },
+      { id: 'starter-1', actionId: 'starter', x: 38, y: 14, size: 54, opacity: 1 },
+      { id: 'il-1', actionId: 'indicatorLeft', x: 46, y: 14, size: 50, opacity: 1 },
       { id: 'hz-1', actionId: 'hazards', x: 54, y: 14, size: 50, opacity: 1 },
-      { id: 'ir-1', actionId: 'indicatorRight', x: 62, y: 14, size: 52, opacity: 1 },
-      { id: 'light-1', actionId: 'lowBeam', x: 38, y: 32, size: 54, opacity: 1 },
-      { id: 'high-1', actionId: 'highBeam', x: 46, y: 32, size: 54, opacity: 1 },
-      { id: 'horn-1', actionId: 'horn', x: 54, y: 32, size: 56, opacity: 1 },
-      { id: 'wiper-1', actionId: 'wiperCycle', x: 62, y: 32, size: 54, opacity: 1 },
-      { id: 'park-1', actionId: 'parkingBrake', x: 40, y: 50, size: 50, opacity: 1 },
-      { id: 'diff-1', actionId: 'diffLock', x: 48, y: 50, size: 50, opacity: 1 },
-      { id: 'retdn-1', actionId: 'retarderDown', x: 56, y: 50, size: 50, opacity: 1 },
-      { id: 'retup-1', actionId: 'retarderUp', x: 64, y: 50, size: 50, opacity: 1 }
+      { id: 'ir-1', actionId: 'indicatorRight', x: 62, y: 14, size: 50, opacity: 1 },
+      { id: 'light-1', actionId: 'lowBeam', x: 38, y: 24, size: 50, opacity: 1 },
+      { id: 'high-1', actionId: 'highBeam', x: 46, y: 24, size: 50, opacity: 1 },
+      { id: 'horn-1', actionId: 'horn', x: 54, y: 24, size: 50, opacity: 1 },
+      { id: 'wiper-1', actionId: 'wiperCycle', x: 62, y: 24, size: 50, opacity: 1 },
+      { id: 'park-1', actionId: 'parkingBrake', x: 36, y: 38, size: 48, opacity: 1 },
+      { id: 'diff-1', actionId: 'diffLock', x: 36, y: 52, size: 48, opacity: 1 },
+      { id: 'retdn-1', actionId: 'retarderDown', x: 36, y: 66, size: 48, opacity: 1 },
+      { id: 'retup-1', actionId: 'retarderUp', x: 36, y: 80, size: 48, opacity: 1 }
     ]
   },
   default_left: {

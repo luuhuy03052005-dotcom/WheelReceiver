@@ -18,6 +18,7 @@ class SettingsManager{
   saveSettings(s){this.settings=validateSettings({...this.settings,...s});localStorage.setItem('lan_wheel_settings_v3',JSON.stringify(this.settings));}
   saveCalibration(c){this.calibration={centerOffsetDeg:finite(c.centerOffsetDeg,0,-540,540),isCalibrated:c.isCalibrated===true};localStorage.setItem('lan_wheel_calib_v3',JSON.stringify(this.calibration));}
   getPairingToken(host=location.host){try{return JSON.parse(localStorage.getItem('lan_wheel_tokens_v3')||'{}')[host]||null;}catch{return null;}}
+  setPairingToken(token,host=location.host){try{const tokens=JSON.parse(localStorage.getItem('lan_wheel_tokens_v3')||'{}');if(token)tokens[host]=token;else delete tokens[host];localStorage.setItem('lan_wheel_tokens_v3',JSON.stringify(tokens));}catch(e){console.warn('[SettingsManager] Failed to set pairing token:',e);}}
   getProfiles(){try{return JSON.parse(localStorage.getItem('lan_wheel_profiles_v1')||'{}');}catch{return {};}}
   getProfile(gameId){return this.getProfiles()[gameId]||null;}
   saveProfile(gameId,profile){if(!gameId||!profile)return;const profiles=this.getProfiles();profiles[gameId]=profile;try{localStorage.setItem('lan_wheel_profiles_v1',JSON.stringify(profiles));}catch(e){console.warn('[SettingsManager] Failed to save profiles:',e);}}

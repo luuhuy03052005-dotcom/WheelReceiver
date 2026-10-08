@@ -46,11 +46,13 @@ export class InputState {
     this.mode = null;
     this.sessionEpoch = 0;
     this.requireTransmittedGap = false;
-    this.reset();
+    this.reset(true);
   }
 
-  reset() {
-    this.sessionEpoch = (this.sessionEpoch || 0) + 1;
+  reset(preserveEpoch = false) {
+    if (!preserveEpoch) {
+      this.sessionEpoch = (this.sessionEpoch || 0) + 1;
+    }
     this.heldSources = new Map(); // actionId -> Set<sourceId>
     this.held = new Set();        // actionIds held by >= 1 source
     this.pulseSources = new Map();// actionId -> Set<sourceId> tracking press edges

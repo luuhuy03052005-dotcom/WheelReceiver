@@ -18,7 +18,7 @@ export function createGatewayServer(options={}){
   const pipeClient=options.pipeClient||new PipeClient(options.pipePath);
   const runtime=options.runtime||new RuntimeManager({file:options.dataDir&&path.join(options.dataDir,'profiles.json'),detect:options.detect===true,discoverScript:options.discoverScript});
   let owner=null,armed=false,configured=false,profilePending=false,lastSeq=null,lastValid=0,requireNeutral=true,closed=false,neutralizedOnTimeout=false;
-  let pendingA=null,pendingB=null,appliedRevision=0,incoherentExtension=false;
+  let pendingA=null,pendingB=null,appliedRevision=0,incoherentExtension=false,corruptedSequence=null;
   let connectionEpoch=0,inFlightConfig=null,queuedConfig=null;
   let driveSessionEpoch=1,sequenceCycle=0;
   const send=(ws,msg)=>{if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));};
@@ -33,7 +33,7 @@ export function createGatewayServer(options={}){
       const network=runtime.status().networks.find(n=>n.address===address);
       return network?(network.usbVerified?'Phiên đang qua adapter mạng USB: ':'Phiên đang qua adapter '+network.kind+': ')+network.name+' ('+address+')':address?'Phiên đang qua '+address:null;})()});
   const broadcast=()=>send(owner,status());
-  const clear=()=>{lastSeq=null;sequenceCycle=0;pendingA=null;pendingB=null;incoherentExtension=false;requireNeutral=true;neutralizedOnTimeout=false;};
+  const clear=()=>{lastSeq=null;sequenceCycle=0;pendingA=null;pendingB=null;incoherentExtension=false;corruptedSequence=null;requireNeutral=true;neutralizedOnTimeout=false;};
   const pause=(reason='Đã tạm ngưng')=>{driveSessionEpoch++;armed=false;clear();pipeClient.sendNeutral();send(owner,{type:'paused',reason});broadcast();};
   const dispatchConfig=()=>{
     if(!pipeClient.isConnected){
@@ -137,15 +137,25 @@ export function createGatewayServer(options={}){
       if(isBinary){
         if(++binaryCount>1200)return;
         if(ws!==owner||!pairing.validateToken(ws.deviceToken)||!armed)return;
-        const frame=Buffer.from(data);if(!validInputFrame(frame)){pendingA=pendingB=null;return;}
-        if(frame[0]===EXT_A){pendingA=frame;pendingB=null;incoherentExtension=false;return;}
-        if(frame[0]===EXT_B){
-          if(pendingA?.[1]===frame[1])pendingB=frame;
-          else {pendingA=null;pendingB=null;incoherentExtension=true;}
+        const frame=Buffer.from(data);
+        if(!validInputFrame(frame)){
+          if(pendingA!==null||pendingB!==null){
+            incoherentExtension=true;
+            corruptedSequence=pendingA?.[1]??pendingB?.[1]??null;
+          }
+          pendingA=pendingB=null;
           return;
         }
-        if(frame[0]!==FRAME_HEADER){pendingA=pendingB=null;incoherentExtension=false;return;}
-        if(incoherentExtension){incoherentExtension=false;pendingA=pendingB=null;return;}
+        if(frame[0]===EXT_A){pendingA=frame;pendingB=null;incoherentExtension=false;corruptedSequence=null;return;}
+        if(frame[0]===EXT_B){
+          if(pendingA?.[1]===frame[1])pendingB=frame;
+          else {corruptedSequence=pendingA?.[1]??frame[1];pendingA=null;pendingB=null;incoherentExtension=true;}
+          return;
+        }
+        if(frame[0]!==FRAME_HEADER){pendingA=pendingB=null;incoherentExtension=false;corruptedSequence=null;return;}
+        if(incoherentExtension||(corruptedSequence!==null&&frame[1]===corruptedSequence)){
+          incoherentExtension=false;corruptedSequence=null;pendingA=pendingB=null;return;
+        }
         const state=decodeFrame(frame);
         if(!state){pendingA=pendingB=null;return;}
         if(lastSeq!==null&&!compareSequence(state.sequence,lastSeq).isNewer){pendingA=pendingB=null;return;}
